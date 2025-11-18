@@ -28,8 +28,9 @@ type Model struct {
 	memUsed     uint64
 	ioReadMB    float64
 	ioWriteMB   float64
-	gpuUsage    float64
-	gpuMemoryMB uint64
+	gpuUsage        float64
+	gpuMemoryMB     uint64
+	gpuMemoryUsedMB uint64
 
 	// Jobs
 	jobs        []*persistence.Job
@@ -116,6 +117,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ioWriteMB = msg.ioWriteMB
 		m.gpuUsage = msg.gpuUsage
 		m.gpuMemoryMB = msg.gpuMemoryMB
+		m.gpuMemoryUsedMB = msg.gpuMemoryUsedMB
 		return m, nil
 
 	case jobsMsg:
@@ -211,9 +213,18 @@ func (m Model) renderSystemStats() string {
 	cpuBar := m.renderBar("CPU", m.cpuUsage, 80.0)
 	cpuInfo := fmt.Sprintf("Usage: %.1f%%\nCores: %d", m.cpuUsage, getCPUCores())
 
-	// GPU
-	gpuBar := m.renderBar("GPU (Intel QSV)", m.gpuUsage, 80.0)
-	gpuInfo := fmt.Sprintf("Usage: %.1f%%\nVRAM: %d MB\nEncoder: Active", m.gpuUsage, m.gpuMemoryMB)
+		// GPU
+		gpuBar := m.renderBar("GPU (Intel QSV)", m.gpuUsage, 80.0)
+		var gpuInfo string
+		if m.gpuMemoryMB > 0 {
+			if m.gpuMemoryUsedMB > 0 {
+				gpuInfo = fmt.Sprintf("Usage: %.1f%%\nVRAM: %d / %d MB\nEncoder: Active", m.gpuUsage, m.gpuMemoryUsedMB, m.gpuMemoryMB)
+			} else {
+				gpuInfo = fmt.Sprintf("Usage: %.1f%%\nVRAM: %d MB (total)\nEncoder: Active", m.gpuUsage, m.gpuMemoryMB)
+			}
+		} else {
+			gpuInfo = fmt.Sprintf("Usage: %.1f%%\nVRAM: N/A\nEncoder: Active", m.gpuUsage)
+		}
 
 	// Memory
 	memBar := m.renderBar("Memory", m.memUsage, 90.0)
@@ -448,14 +459,15 @@ func (m Model) getQueueStats() queueStats {
 // Messages
 type tickMsg struct{}
 type systemMetricsMsg struct {
-	cpuUsage    float64
-	memUsage    float64
-	memTotal    uint64
-	memUsed     uint64
-	ioReadMB    float64
-	ioWriteMB   float64
-	gpuUsage    float64
-	gpuMemoryMB uint64
+	cpuUsage        float64
+	memUsage        float64
+	memTotal        uint64
+	memUsed         uint64
+	ioReadMB        float64
+	ioWriteMB       float64
+	gpuUsage        float64
+	gpuMemoryMB     uint64
+	gpuMemoryUsedMB uint64
 }
 type jobsMsg struct{ jobs []*persistence.Job }
 type logsMsg struct{ logs []string }
@@ -493,7 +505,8 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 
 		// GPU metrics using intel_gpu_top or sysfs
 		gpuUsage := 0.0
-		gpuMemoryMB := uint64(0)
+		gpuMemoryMB := uint64(0)      // Total VRAM capacity
+		gpuMemoryUsedMB := uint64(0)   // Used VRAM
 		
 		// Method 1: Try intel_gpu_top (requires CAP_PERFMON, may not work)
 		// intel_gpu_top doesn't support -n flag, use timeout wrapper
@@ -527,7 +540,19 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 							// Extract number before MB/MiB
 							numStr := strings.TrimSuffix(strings.TrimSuffix(part, "MB"), "MiB")
 							if mem, err := strconv.ParseUint(numStr, 10, 64); err == nil {
-								gpuMemoryMB = mem
+								// Try to determine if this is used or total
+								// Look for keywords like "used", "allocated", "free", "total"
+								lineLower := strings.ToLower(line)
+								if strings.Contains(lineLower, "used") || strings.Contains(lineLower, "allocated") {
+									gpuMemoryUsedMB = mem
+								} else if strings.Contains(lineLower, "total") || strings.Contains(lineLower, "capacity") {
+									gpuMemoryMB = mem
+								} else {
+									// Default: assume it's total if we don't have one yet
+									if gpuMemoryMB == 0 {
+										gpuMemoryMB = mem
+									}
+								}
 							}
 						}
 					}
@@ -833,14 +858,15 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 		// If still 0, we can't easily get it from sysfs without parsing complex files
 
 		return systemMetricsMsg{
-			cpuUsage:    cpuUsage,
-			memUsage:    memUsage,
-			memTotal:    memTotal,
-			memUsed:     memUsed,
-			ioReadMB:    ioReadMB,
-			ioWriteMB:   ioWriteMB,
-			gpuUsage:    gpuUsage,
-			gpuMemoryMB: gpuMemoryMB,
+			cpuUsage:        cpuUsage,
+			memUsage:        memUsage,
+			memTotal:        memTotal,
+			memUsed:         memUsed,
+			ioReadMB:        ioReadMB,
+			ioWriteMB:        ioWriteMB,
+			gpuUsage:        gpuUsage,
+			gpuMemoryMB:     gpuMemoryMB,
+			gpuMemoryUsedMB: gpuMemoryUsedMB,
 		}
 	}
 }

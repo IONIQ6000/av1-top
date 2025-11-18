@@ -217,6 +217,7 @@ if [ -n "$FFMPEG_SOURCE" ] || [ "$SKIP_STATIC" = "true" ]; then
     apt-get install -y -qq \
         build-essential \
         yasm \
+        nasm \
         cmake \
         libtool \
         pkg-config \
@@ -273,25 +274,68 @@ if [ -n "$FFMPEG_SOURCE" ] || [ "$SKIP_STATIC" = "true" ]; then
     # Intel QSV support (REQUIRED for AV1 transcoding)
     CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libmfx --enable-libvpl --enable-vaapi"
     
-    # Add optional libraries if available
-    pkg-config --exists libx264 && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libx264" || echo "⚠ libx264 not found"
-    pkg-config --exists x265 && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libx265" || echo "⚠ libx265 not found"
-    pkg-config --exists vpx && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libvpx" || echo "⚠ libvpx not found"
-    pkg-config --exists fdk-aac && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libfdk-aac" || echo "⚠ libfdk-aac not found"
-    pkg-config --exists libmp3lame && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libmp3lame" || echo "⚠ libmp3lame not found"
-    pkg-config --exists opus && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libopus" || echo "⚠ libopus not found"
+    # Add optional libraries if available (check multiple ways)
+    if pkg-config --exists x264 2>/dev/null || pkg-config --exists libx264 2>/dev/null || [ -f /usr/lib/pkgconfig/x264.pc ]; then
+        CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libx264"
+    else
+        echo "⚠ libx264 not found"
+    fi
+    
+    if pkg-config --exists x265 2>/dev/null || [ -f /usr/lib/pkgconfig/x265.pc ]; then
+        CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libx265"
+    else
+        echo "⚠ libx265 not found"
+    fi
+    
+    if pkg-config --exists vpx 2>/dev/null || [ -f /usr/lib/pkgconfig/vpx.pc ]; then
+        CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libvpx"
+    else
+        echo "⚠ libvpx not found"
+    fi
+    
+    if pkg-config --exists fdk-aac 2>/dev/null || [ -f /usr/lib/pkgconfig/fdk-aac.pc ]; then
+        CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libfdk-aac"
+    else
+        echo "⚠ libfdk-aac not found"
+    fi
+    
+    if pkg-config --exists libmp3lame 2>/dev/null || [ -f /usr/lib/pkgconfig/mp3lame.pc ]; then
+        CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libmp3lame"
+    else
+        echo "⚠ libmp3lame not found"
+    fi
+    
+    if pkg-config --exists opus 2>/dev/null || [ -f /usr/lib/pkgconfig/opus.pc ]; then
+        CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libopus"
+    else
+        echo "⚠ libopus not found"
+    fi
     
     echo "Configure args: $CONFIGURE_ARGS"
+    
+    # Check if nasm is available
+    if ! command -v nasm &> /dev/null || ! nasm -v 2>&1 | grep -q "version 2"; then
+        echo -e "${YELLOW}⚠ nasm not found or too old, disabling x86asm (build will be slower)${NC}"
+        CONFIGURE_ARGS="$CONFIGURE_ARGS --disable-x86asm"
+    fi
+    
     ./configure $CONFIGURE_ARGS || {
-        echo -e "${YELLOW}⚠ Configuration failed, trying minimal build...${NC}"
+        echo -e "${YELLOW}⚠ Configuration failed, trying minimal build with x86asm disabled...${NC}"
         ./configure \
             --prefix=/usr/local \
             --enable-gpl \
+            --enable-version3 \
             --enable-shared \
             --disable-debug \
             --disable-doc \
+            --enable-libmfx \
+            --enable-libvpl \
+            --enable-vaapi \
+            --disable-x86asm \
             || {
                 echo -e "${RED}✗ Configuration failed${NC}"
+                echo "Check config.log for details:"
+                [ -f ffbuild/config.log ] && tail -50 ffbuild/config.log
                 exit 1
             }
     }

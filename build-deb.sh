@@ -178,14 +178,29 @@ else
     # Create debian-binary file
     echo "2.0" > "$TMP_DEB/debian-binary"
     
-    # Create control.tar.gz
+    # Create control.tar.gz (Linux-compatible, no macOS xattrs)
     cd "$PACKAGE_DIR/DEBIAN"
-    tar czf "$TMP_DEB/control.tar.gz" .
+    # Disable macOS extended attributes and use ustar format for Linux compatibility
+    export COPYFILE_DISABLE=1  # macOS: don't copy extended attributes
+    # Try ustar format first (Linux-compatible), fallback to default
+    tar --format=ustar -czf "$TMP_DEB/control.tar.gz" . 2>/dev/null || \
+    tar -czf "$TMP_DEB/control.tar.gz" . --format=ustar 2>/dev/null || \
+    COPYFILE_DISABLE=1 tar -czf "$TMP_DEB/control.tar.gz" .
+    unset COPYFILE_DISABLE
     cd - > /dev/null
     
-    # Create data.tar.gz (all files except DEBIAN)
+    # Create data.tar.gz (all files except DEBIAN, Linux-compatible)
     cd "$PACKAGE_DIR"
-    find . -type f ! -path "./DEBIAN/*" -print0 | tar czf "$TMP_DEB/data.tar.gz" --null -T -
+    # Disable macOS extended attributes and use ustar format
+    export COPYFILE_DISABLE=1
+    # Try ustar format first, fallback to default with COPYFILE_DISABLE
+    find . -type f ! -path "./DEBIAN/*" -print0 | \
+        tar --format=ustar --null -czf "$TMP_DEB/data.tar.gz" -T - 2>/dev/null || \
+    find . -type f ! -path "./DEBIAN/*" -print0 | \
+        tar --null -czf "$TMP_DEB/data.tar.gz" -T - --format=ustar 2>/dev/null || \
+    find . -type f ! -path "./DEBIAN/*" -print0 | \
+        COPYFILE_DISABLE=1 tar --null -czf "$TMP_DEB/data.tar.gz" -T -
+    unset COPYFILE_DISABLE
     cd - > /dev/null
     
     # Create the .deb file using ar

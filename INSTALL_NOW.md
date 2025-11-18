@@ -75,13 +75,15 @@ av1top
 If you want a .deb package:
 
 ```bash
-# Build package
+# Build package (if building from source)
 ./build-deb.sh
 
-# Install
+# Install the .deb file (NOT executable!)
 sudo dpkg -i av1janitor_0.1.0_amd64.deb
-sudo apt-get install -f
+sudo apt-get install -f  # Install dependencies if needed
 ```
+
+**IMPORTANT:** `.deb` files are NOT executable scripts! Use `dpkg -i` to install them.
 
 ---
 

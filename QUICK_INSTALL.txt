@@ -1,0 +1,50 @@
+================================================================================
+  QUICK INSTALLATION GUIDE
+================================================================================
+
+DEBIAN PACKAGE (.deb file):
+----------------------------
+sudo dpkg -i av1janitor_0.1.0_amd64.deb
+sudo apt-get install -f  # Install dependencies if needed
+
+That's it! The package will:
+- Install binaries to /usr/local/bin
+- Create service user
+- Set up config files
+- Configure systemd service
+
+
+INSTALL SCRIPT (install.sh):
+----------------------------
+sudo ./install.sh
+
+This builds from source and installs everything automatically.
+
+
+AFTER INSTALLATION:
+-------------------
+1. Edit config:
+   sudo nano /etc/av1janitor/config.toml
+
+2. Start service:
+   sudo systemctl start av1janitor
+
+3. Monitor:
+   av1top
+
+
+TROUBLESHOOTING:
+----------------
+If dpkg fails with dependency errors:
+  sudo apt-get install -f
+
+Check service status:
+  sudo systemctl status av1janitor
+
+View logs:
+  sudo journalctl -u av1janitor -f
+
+Test manually:
+  av1d --once --dry-run -vv
+
+================================================================================

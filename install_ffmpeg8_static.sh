@@ -86,40 +86,65 @@ fi
 
 # Download static build
 echo -e "${YELLOW}[2/4] Downloading FFmpeg 8.0 static build...${NC}"
-echo "URL: $STATIC_URL"
-echo ""
 
 DOWNLOAD_SUCCESS=false
+DOWNLOADED_URL=""
 
-if command -v wget &> /dev/null; then
-    echo "Using wget..."
-    if wget --progress=bar:force:noscroll --show-progress "$STATIC_URL" -O ffmpeg-static.tar.xz 2>&1; then
-        DOWNLOAD_SUCCESS=true
+# Try each URL until one works
+for url in "${STATIC_URLS[@]}"; do
+    echo "Trying: $url"
+    
+    if command -v wget &> /dev/null; then
+        if wget --progress=bar:force:noscroll --show-progress "$url" -O ffmpeg-static.tar.xz 2>&1; then
+            if [ -f "ffmpeg-static.tar.xz" ] && [ -s "ffmpeg-static.tar.xz" ]; then
+                FILE_SIZE=$(stat -c%s ffmpeg-static.tar.xz 2>/dev/null || stat -f%z ffmpeg-static.tar.xz 2>/dev/null || echo "0")
+                if [ "$FILE_SIZE" -gt 1000000 ]; then
+                    DOWNLOAD_SUCCESS=true
+                    DOWNLOADED_URL="$url"
+                    break
+                fi
+            fi
+        fi
+    elif command -v curl &> /dev/null; then
+        HTTP_CODE=$(curl -L --write-out "%{http_code}" --silent --output ffmpeg-static.tar.xz "$url")
+        if [ "$HTTP_CODE" = "200" ] && [ -f "ffmpeg-static.tar.xz" ] && [ -s "ffmpeg-static.tar.xz" ]; then
+            FILE_SIZE=$(stat -c%s ffmpeg-static.tar.xz 2>/dev/null || stat -f%z ffmpeg-static.tar.xz 2>/dev/null || echo "0")
+            if [ "$FILE_SIZE" -gt 1000000 ]; then
+                DOWNLOAD_SUCCESS=true
+                DOWNLOADED_URL="$url"
+                break
+            fi
+        fi
+    fi
+    
+    rm -f ffmpeg-static.tar.xz 2>/dev/null
+done
+
+# If all URLs failed, try git build as fallback
+if [ "$DOWNLOAD_SUCCESS" = "false" ]; then
+    echo -e "${YELLOW}⚠ FFmpeg 8.0 release not found, trying git build...${NC}"
+    GIT_URL="https://johnvansickle.com/ffmpeg/builds/ffmpeg-git-amd64-static.tar.xz"
+    echo "Trying: $GIT_URL"
+    
+    if command -v wget &> /dev/null; then
+        wget --progress=bar:force:noscroll --show-progress "$GIT_URL" -O ffmpeg-static.tar.xz 2>&1 || {
+            echo -e "${RED}✗ All download attempts failed${NC}"
+            exit 1
+        }
     else
-        echo -e "${YELLOW}⚠ wget failed, trying curl...${NC}"
+        curl -L --progress-bar "$GIT_URL" -o ffmpeg-static.tar.xz || {
+            echo -e "${RED}✗ All download attempts failed${NC}"
+            exit 1
+        }
     fi
-fi
-
-if [ "$DOWNLOAD_SUCCESS" = "false" ] && command -v curl &> /dev/null; then
-    echo "Using curl..."
-    if curl -L --progress-bar "$STATIC_URL" -o ffmpeg-static.tar.xz; then
-        DOWNLOAD_SUCCESS=true
+    
+    if [ ! -f "ffmpeg-static.tar.xz" ] || [ ! -s "ffmpeg-static.tar.xz" ]; then
+        echo -e "${RED}✗ Download failed${NC}"
+        exit 1
     fi
-fi
-
-if [ "$DOWNLOAD_SUCCESS" = "false" ] || [ ! -f "ffmpeg-static.tar.xz" ]; then
-    echo -e "${RED}✗ Download failed${NC}"
-    echo ""
-    echo "Possible issues:"
-    echo "  1. Network connectivity"
-    echo "  2. URL may be incorrect or file moved"
-    echo "  3. Server may be down"
-    echo ""
-    echo "Try manually:"
-    echo "  wget $STATIC_URL"
-    echo "  or"
-    echo "  curl -L $STATIC_URL -o ffmpeg-static.tar.xz"
-    exit 1
+    
+    DOWNLOADED_URL="$GIT_URL"
+    echo -e "${YELLOW}⚠ Using git build (may not be exactly 8.0)${NC}"
 fi
 
 # Verify file was downloaded and has content
@@ -135,7 +160,8 @@ if [ "$FILE_SIZE" -lt 1000000 ]; then
     exit 1
 fi
 
-echo -e "${GREEN}✓ Download complete (${FILE_SIZE} bytes)${NC}"
+echo -e "${GREEN}✓ Download complete from: $DOWNLOADED_URL${NC}"
+echo -e "${GREEN}  File size: ${FILE_SIZE} bytes${NC}"
 
 # Extract
 echo -e "${YELLOW}[3/4] Extracting...${NC}"

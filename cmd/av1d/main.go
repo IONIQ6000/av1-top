@@ -5,12 +5,16 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/IONIQ6000/av1-top/internal/config"
 	"github.com/IONIQ6000/av1-top/internal/ffmpeg"
 	"github.com/IONIQ6000/av1-top/internal/scanner"
+	"github.com/IONIQ6000/av1-top/internal/transcode"
 )
 
 func main() {
@@ -99,36 +103,135 @@ func main() {
 	
 	log.Println("Watching for new files (Ctrl+C to stop)...")
 	
-	// TODO: Implement file watching and transcoding
-	// For now, just wait for shutdown signal
-	// In the future, this will:
-	// - Set up filesystem watcher (fsnotify)
-	// - Process files with concurrency limit
-	// - Create and manage jobs
-	// - Execute FFmpeg transcoding
+	// Setup job tracking
+	jobsDir := "/var/lib/av1janitor/jobs"
+	if err := os.MkdirAll(jobsDir, 0755); err != nil {
+		log.Printf("Warning: Failed to create jobs directory: %v", err)
+		// Try fallback
+		home, _ := os.UserHomeDir()
+		jobsDir = filepath.Join(home, ".local/share/av1janitor/jobs")
+		os.MkdirAll(jobsDir, 0755)
+	}
 	
-	// Simple loop that scans periodically
+	// Track processed files
+	processed := make(map[string]bool)
+	var mu sync.Mutex
+	
+	// Semaphore for concurrency control
+	sem := make(chan struct{}, *concurrent)
+	
+	// Process initial files if not dry run
+	if !*dryRun && len(files) > 0 {
+		log.Printf("Processing %d files with %d concurrent workers...", len(files), *concurrent)
+		
+		for _, file := range files {
+			// Check if already processed or being processed
+			mu.Lock()
+			if processed[file] {
+				mu.Unlock()
+				continue
+			}
+			processed[file] = true
+			mu.Unlock()
+			
+			// Acquire semaphore
+			sem <- struct{}{}
+			
+			go func(f string) {
+				defer func() { <-sem }() // Release semaphore
+				
+				log.Printf("Starting transcode: %s", f)
+				err := transcode.Transcode(
+					fm.Path(),
+					strings.Replace(fm.Path(), "ffmpeg", "ffprobe", 1),
+					f,
+					jobsDir,
+					cfg.SizeGateFactor,
+				)
+				
+				if err != nil {
+					log.Printf("Transcode failed for %s: %v", f, err)
+				} else {
+					log.Printf("Transcode completed: %s", f)
+				}
+			}(file)
+		}
+	}
+	
+	// Periodic scanning loop
 	ticker := time.NewTicker(time.Duration(cfg.ScanIntervalSec) * time.Second)
 	defer ticker.Stop()
 	
 	for {
 		select {
 		case <-sigChan:
-			log.Println("Shutdown requested, exiting gracefully...")
+			log.Println("Shutdown requested, waiting for active jobs...")
+			
+			// Wait for all jobs to complete
+			for i := 0; i < *concurrent; i++ {
+				sem <- struct{}{}
+			}
+			
+			log.Println("All jobs completed, exiting gracefully...")
 			return
+			
 		case <-ticker.C:
-			// Periodic scan (will be replaced with filesystem watching)
+			if *dryRun {
+				continue
+			}
+			
+			// Periodic scan
 			if *verbose {
 				log.Println("Periodic directory scan...")
 			}
-			files, err := scanner.ScanDirectories(
+			
+			newFiles, err := scanner.ScanDirectories(
 				cfg.WatchedDirectories,
 				cfg.MediaExtensions,
 				cfg.MinFileSizeBytes,
 				cfg.MaxScanDepth,
 			)
-			if err == nil && *verbose {
-				log.Printf("Found %d media files", len(files))
+			
+			if err != nil {
+				log.Printf("Error scanning: %v", err)
+				continue
+			}
+			
+			// Process any new files
+			for _, file := range newFiles {
+				mu.Lock()
+				if processed[file] {
+					mu.Unlock()
+					continue
+				}
+				processed[file] = true
+				mu.Unlock()
+				
+				// Acquire semaphore
+				sem <- struct{}{}
+				
+				go func(f string) {
+					defer func() { <-sem }()
+					
+					log.Printf("Starting transcode: %s", f)
+					err := transcode.Transcode(
+						fm.Path(),
+						strings.Replace(fm.Path(), "ffmpeg", "ffprobe", 1),
+						f,
+						jobsDir,
+						cfg.SizeGateFactor,
+					)
+					
+					if err != nil {
+						log.Printf("Transcode failed for %s: %v", f, err)
+					} else {
+						log.Printf("Transcode completed: %s", f)
+					}
+				}(file)
+			}
+			
+			if *verbose && len(newFiles) > 0 {
+				log.Printf("Found %d media files", len(newFiles))
 			}
 		}
 	}

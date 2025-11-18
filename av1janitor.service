@@ -9,7 +9,7 @@ Group=media
 WorkingDirectory=/opt/av1janitor
 
 # Path to the daemon binary
-ExecStart=/usr/local/bin/av1d --concurrent 2
+ExecStart=/usr/bin/av1d --concurrent 2
 
 # Restart policy
 Restart=on-failure

@@ -29,16 +29,18 @@ mkdir -p "debian-package/$DEB_NAME"
 mkdir -p "debian-package/$DEB_NAME/DEBIAN"
 
 # Create installation directories
-mkdir -p "debian-package/$DEB_NAME/usr/local/bin"
+# Note: Debian packages should use /usr/bin, not /usr/local/bin
+# /usr/local is for manual installations, /usr is for packages
+mkdir -p "debian-package/$DEB_NAME/usr/bin"
 mkdir -p "debian-package/$DEB_NAME/etc/av1janitor"
 mkdir -p "debian-package/$DEB_NAME/etc/systemd/system"
 mkdir -p "debian-package/$DEB_NAME/usr/share/doc/av1janitor"
 
 # Copy binaries
 echo "[3/5] Copying files..."
-cp target/release/av1d "debian-package/$DEB_NAME/usr/local/bin/"
-cp target/release/av1top "debian-package/$DEB_NAME/usr/local/bin/"
-chmod +x "debian-package/$DEB_NAME/usr/local/bin/"*
+cp target/release/av1d "debian-package/$DEB_NAME/usr/bin/"
+cp target/release/av1top "debian-package/$DEB_NAME/usr/bin/"
+chmod +x "debian-package/$DEB_NAME/usr/bin/"*
 
 # Copy config example
 cp config.example.toml "debian-package/$DEB_NAME/etc/av1janitor/config.toml.example"

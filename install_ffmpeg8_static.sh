@@ -82,20 +82,55 @@ fi
 # Download static build
 echo -e "${YELLOW}[2/4] Downloading FFmpeg 8.0 static build...${NC}"
 echo "URL: $STATIC_URL"
+echo ""
+
+DOWNLOAD_SUCCESS=false
 
 if command -v wget &> /dev/null; then
-    wget --progress=bar:force:noscroll -q --show-progress "$STATIC_URL" -O ffmpeg-static.tar.xz || {
-        echo -e "${RED}✗ Download failed${NC}"
-        exit 1
-    }
-else
-    curl -L --progress-bar "$STATIC_URL" -o ffmpeg-static.tar.xz || {
-        echo -e "${RED}✗ Download failed${NC}"
-        exit 1
-    }
+    echo "Using wget..."
+    if wget --progress=bar:force:noscroll --show-progress "$STATIC_URL" -O ffmpeg-static.tar.xz 2>&1; then
+        DOWNLOAD_SUCCESS=true
+    else
+        echo -e "${YELLOW}⚠ wget failed, trying curl...${NC}"
+    fi
 fi
 
-echo -e "${GREEN}✓ Download complete${NC}"
+if [ "$DOWNLOAD_SUCCESS" = "false" ] && command -v curl &> /dev/null; then
+    echo "Using curl..."
+    if curl -L --progress-bar "$STATIC_URL" -o ffmpeg-static.tar.xz; then
+        DOWNLOAD_SUCCESS=true
+    fi
+fi
+
+if [ "$DOWNLOAD_SUCCESS" = "false" ] || [ ! -f "ffmpeg-static.tar.xz" ]; then
+    echo -e "${RED}✗ Download failed${NC}"
+    echo ""
+    echo "Possible issues:"
+    echo "  1. Network connectivity"
+    echo "  2. URL may be incorrect or file moved"
+    echo "  3. Server may be down"
+    echo ""
+    echo "Try manually:"
+    echo "  wget $STATIC_URL"
+    echo "  or"
+    echo "  curl -L $STATIC_URL -o ffmpeg-static.tar.xz"
+    exit 1
+fi
+
+# Verify file was downloaded and has content
+if [ ! -s "ffmpeg-static.tar.xz" ]; then
+    echo -e "${RED}✗ Downloaded file is empty${NC}"
+    exit 1
+fi
+
+FILE_SIZE=$(stat -c%s ffmpeg-static.tar.xz 2>/dev/null || stat -f%z ffmpeg-static.tar.xz 2>/dev/null || echo "0")
+if [ "$FILE_SIZE" -lt 1000000 ]; then
+    echo -e "${RED}✗ Downloaded file is too small (may be an error page)${NC}"
+    echo "File size: $FILE_SIZE bytes"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Download complete (${FILE_SIZE} bytes)${NC}"
 
 # Extract
 echo -e "${YELLOW}[3/4] Extracting...${NC}"

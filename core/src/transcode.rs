@@ -105,16 +105,16 @@ pub fn build_ffmpeg_command(_ffmpeg_path: &Path, params: &TranscodeParams) -> Ve
     // In containers, we need to initialize VAAPI first, then use it as child device for QSV
     // This is because oneVPL may not have direct DRM access in containers
     if let Ok(entries) = std::fs::read_dir("/dev/dri") {
-        // Find first renderD* device
-        if let Some(render_device) = entries
+        // Check if we have renderD* devices
+        let has_render = entries
             .filter_map(|e| e.ok())
-            .find(|e| e.file_name().to_string_lossy().starts_with("renderD"))
-        {
-            let render_path = render_device.path();
-            
+            .any(|e| e.file_name().to_string_lossy().starts_with("renderD"));
+        
+        if has_render {
             // Initialize VAAPI device first (named "va")
+            // Use auto-detection - VAAPI will find the device automatically
             args.push("-init_hw_device".to_string());
-            args.push(format!("vaapi=va:{}", render_path.display()));
+            args.push("vaapi=va".to_string());
             
             // Then initialize QSV using VAAPI device (use @ to reference named device)
             args.push("-init_hw_device".to_string());

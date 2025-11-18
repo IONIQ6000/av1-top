@@ -62,6 +62,7 @@ func main() {
 		cfg.WatchedDirectories,
 		cfg.MediaExtensions,
 		cfg.MinFileSizeBytes,
+		cfg.MaxScanDepth,
 	)
 	if err != nil {
 		log.Printf("Error scanning directories: %v", err)
@@ -124,6 +125,7 @@ func main() {
 				cfg.WatchedDirectories,
 				cfg.MediaExtensions,
 				cfg.MinFileSizeBytes,
+				cfg.MaxScanDepth,
 			)
 			if err == nil && *verbose {
 				log.Printf("Found %d media files", len(files))

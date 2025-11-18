@@ -9,7 +9,8 @@ import (
 
 // ScanDirectories scans all watched directories for media files
 // Returns a list of file paths that match the criteria
-func ScanDirectories(watchedDirs []string, extensions []string, minSizeBytes uint64) ([]string, error) {
+// maxDepth: -1 for unlimited, 0 for current directory only, 1 for one level deep, etc.
+func ScanDirectories(watchedDirs []string, extensions []string, minSizeBytes uint64, maxDepth int) ([]string, error) {
 	var files []string
 	
 	for _, rootDir := range watchedDirs {
@@ -19,7 +20,7 @@ func ScanDirectories(watchedDirs []string, extensions []string, minSizeBytes uin
 		}
 		
 		fmt.Printf("Scanning directory: %s\n", rootDir)
-		found, err := scanDirectoryRecursive(rootDir, extensions, minSizeBytes)
+		found, err := scanDirectoryRecursive(rootDir, extensions, minSizeBytes, maxDepth, 0)
 		if err != nil {
 			fmt.Printf("Error scanning %s: %v\n", rootDir, err)
 			continue
@@ -33,9 +34,15 @@ func ScanDirectories(watchedDirs []string, extensions []string, minSizeBytes uin
 }
 
 // scanDirectoryRecursive recursively scans a directory for media files
-// Uses smart depth limiting: only recurses into subdirectories that have media files at their top level
-func scanDirectoryRecursive(dir string, extensions []string, minSizeBytes uint64) ([]string, error) {
+// maxDepth: -1 for unlimited, 0 for current directory only, 1 for one level deep, etc.
+// currentDepth: current recursion depth (starts at 0)
+func scanDirectoryRecursive(dir string, extensions []string, minSizeBytes uint64, maxDepth int, currentDepth int) ([]string, error) {
 	var files []string
+	
+	// Check depth limit
+	if maxDepth >= 0 && currentDepth > maxDepth {
+		return files, nil // Reached max depth
+	}
 	
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -72,10 +79,10 @@ func scanDirectoryRecursive(dir string, extensions []string, minSizeBytes uint64
 		}
 	}
 	
-	// Second pass: only recurse into subdirectories that have media files at top level
-	for _, subdir := range subdirs {
-		if hasMediaFilesAtTopLevel(subdir, extensions) {
-			subFiles, err := scanDirectoryRecursive(subdir, extensions, minSizeBytes)
+	// Second pass: recurse into subdirectories if we haven't hit max depth
+	if maxDepth < 0 || currentDepth < maxDepth {
+		for _, subdir := range subdirs {
+			subFiles, err := scanDirectoryRecursive(subdir, extensions, minSizeBytes, maxDepth, currentDepth+1)
 			if err != nil {
 				// Log error but continue with other directories
 				fmt.Printf("Warning: Error scanning subdirectory %s: %v\n", subdir, err)
@@ -83,7 +90,6 @@ func scanDirectoryRecursive(dir string, extensions []string, minSizeBytes uint64
 			}
 			files = append(files, subFiles...)
 		}
-		// If subdirectory has no files at top level, skip it entirely (don't recurse)
 	}
 	
 	return files, nil

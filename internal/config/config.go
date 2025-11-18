@@ -14,6 +14,7 @@ type Config struct {
 	SizeGateFactor     float64  `toml:"size_gate_factor"`
 	MediaExtensions    []string `toml:"media_extensions"`
 	ScanIntervalSec    uint64   `toml:"scan_interval_seconds"`
+	MaxScanDepth       int      `toml:"max_scan_depth"` // -1 for unlimited, 0 for current dir only, 1 for one level deep
 	QsvQuality         QsvQualitySettings `toml:"qsv_quality"`
 }
 
@@ -61,6 +62,7 @@ func Default() *Config {
 		SizeGateFactor:      0.9,
 		MediaExtensions:     []string{"mkv", "mp4", "avi"},
 		ScanIntervalSec:     60,
+		MaxScanDepth:        1, // Default: scan one level of subdirectories
 		QsvQuality: QsvQualitySettings{
 			Below1080p:      25,
 			At1080p:         24,

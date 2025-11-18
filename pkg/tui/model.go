@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -314,14 +315,33 @@ func (m Model) renderJobsTable() string {
 	rows = append(rows, "Status │ File │ Created")
 	rows = append(rows, strings.Repeat("─", m.width-4))
 
-	// Show last 10 jobs
-	start := len(m.jobs) - 10
-	if start < 0 {
-		start = 0
+	// Sort jobs: running first, then by CreatedAt (newest first)
+	sortedJobs := make([]*persistence.Job, len(m.jobs))
+	copy(sortedJobs, m.jobs)
+	
+	// Simple sort: running jobs first, then by CreatedAt descending
+	for i := 0; i < len(sortedJobs)-1; i++ {
+		for j := i + 1; j < len(sortedJobs); j++ {
+			// Running jobs come first
+			if sortedJobs[j].Status == persistence.StatusRunning && sortedJobs[i].Status != persistence.StatusRunning {
+				sortedJobs[i], sortedJobs[j] = sortedJobs[j], sortedJobs[i]
+			} else if sortedJobs[i].Status == sortedJobs[j].Status {
+				// Same status: newer first
+				if sortedJobs[j].CreatedAt > sortedJobs[i].CreatedAt {
+					sortedJobs[i], sortedJobs[j] = sortedJobs[j], sortedJobs[i]
+				}
+			}
+		}
 	}
 
-	for i := len(m.jobs) - 1; i >= start; i-- {
-		job := m.jobs[i]
+	// Show first 10 jobs (running jobs will be first)
+	maxShow := 10
+	if len(sortedJobs) < maxShow {
+		maxShow = len(sortedJobs)
+	}
+
+	for i := 0; i < maxShow; i++ {
+		job := sortedJobs[i]
 		statusColor := "240" // Gray
 		switch job.Status {
 		case persistence.StatusComplete:
@@ -330,6 +350,8 @@ func (m Model) renderJobsTable() string {
 			statusColor = "196" // Red
 		case persistence.StatusRunning:
 			statusColor = "226" // Yellow
+		case persistence.StatusPending:
+			statusColor = "33" // Blue
 		}
 
 		status := lipgloss.NewStyle().Foreground(lipgloss.Color(statusColor)).Render(string(job.Status))
@@ -462,10 +484,55 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 			ioWriteMB += float64(io.WriteBytes) / 1024 / 1024
 		}
 
-		// GPU (would need intel_gpu_top or similar)
+		// GPU metrics using intel_gpu_top
 		gpuUsage := 0.0
 		gpuMemoryMB := uint64(0)
-		// TODO: Parse intel_gpu_top output or use libva
+		
+		// Try to get GPU metrics from intel_gpu_top
+		cmd := exec.Command("timeout", "1", "intel_gpu_top", "-l", "-n", "1")
+		output, err := cmd.Output()
+		if err == nil {
+			// Parse intel_gpu_top output
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				// Look for render/3D usage percentage
+				if strings.Contains(line, "Render/3D") {
+					// Parse percentage from line like "Render/3D:    5%"
+					parts := strings.Fields(line)
+					for i, part := range parts {
+						if strings.HasSuffix(part, "%") {
+							if usage, err := strconv.ParseFloat(strings.TrimSuffix(part, "%"), 64); err == nil {
+								gpuUsage = usage
+								break
+							}
+						}
+						// Also check for memory usage
+						if part == "VRAM" && i+1 < len(parts) {
+							if memStr := parts[i+1]; strings.HasSuffix(memStr, "MB") {
+								if mem, err := strconv.ParseUint(strings.TrimSuffix(memStr, "MB"), 10, 64); err == nil {
+									gpuMemoryMB = mem
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		// Fallback: try reading from /sys/class/drm
+		if gpuUsage == 0 {
+			// Try to read GPU frequency as proxy for usage
+			freqFile := "/sys/class/drm/card0/gt/cur_freq_mhz"
+			if data, err := os.ReadFile(freqFile); err == nil {
+				if freq, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil {
+					// Normalize to percentage (assuming max ~1200 MHz)
+					gpuUsage = (freq / 1200.0) * 100.0
+					if gpuUsage > 100 {
+						gpuUsage = 100
+					}
+				}
+			}
+		}
 
 		return systemMetricsMsg{
 			cpuUsage:    cpuUsage,

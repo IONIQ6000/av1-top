@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -11,17 +10,15 @@ import (
 
 	"github.com/IONIQ6000/av1-top/internal/config"
 	"github.com/IONIQ6000/av1-top/internal/ffmpeg"
-	"github.com/IONIQ6000/av1-top/internal/persistence"
 	"github.com/IONIQ6000/av1-top/internal/scanner"
 )
 
 func main() {
 	var (
-		configPath   = flag.String("config", "", "Path to configuration file")
-		concurrent   = flag.Int("concurrent", 1, "Number of concurrent transcodes")
-		once         = flag.Bool("once", false, "Run once and exit")
-		dryRun       = flag.Bool("dry-run", false, "Dry run mode (analyze but don't transcode)")
-		verbose      = flag.Bool("verbose", false, "Verbose logging")
+		configPath = flag.String("config", "", "Path to configuration file")
+		concurrent = flag.Int("concurrent", 1, "Number of concurrent transcodes")
+		dryRun     = flag.Bool("dry-run", false, "Dry run mode (analyze but don't transcode)")
+		verbose    = flag.Bool("verbose", false, "Verbose logging")
 	)
 	flag.Parse()
 

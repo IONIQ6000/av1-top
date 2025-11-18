@@ -16,6 +16,10 @@ media_extensions = ["mkv", "mp4", "avi"]
 # Seconds to wait between directory scans
 scan_interval_seconds = 60
 
+# Maximum scan depth (-1 = unlimited, 0 = current dir only, 1 = one level deep)
+# Default: 1 (scans parent directory + one level of subdirectories)
+max_scan_depth = 1
+
 # QSV quality settings per resolution
 # Lower values = higher quality, higher bitrate
 [qsv_quality]

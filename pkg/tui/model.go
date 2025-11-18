@@ -600,15 +600,33 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 			}
 		}
 		
-		// Method 3: Simple heuristic - if transcoding is active, show some usage
-		// This is a fallback when we can't get real metrics
+		// Method 3: Try reading from /proc (if available)
+		// Some systems expose GPU stats in /proc
 		if gpuUsage == 0 {
-			// Check if there are running jobs
-			for _, job := range m.jobs {
-				if job.Status == persistence.StatusRunning {
-					// Show estimated usage (50-80% range) when transcoding
-					gpuUsage = 65.0 // Mid-range estimate
-					break
+			procPaths := []string{
+				"/proc/driver/i915/gt/cur_freq_mhz",
+				"/proc/driver/i915/gt_min_freq_mhz",
+			}
+			for _, procFile := range procPaths {
+				if data, err := os.ReadFile(procFile); err == nil {
+					if freq, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil && freq > 0 {
+						// Try to get max for normalization
+						maxProcFile := strings.Replace(procFile, "cur_freq", "max_freq", 1)
+						maxProcFile = strings.Replace(maxProcFile, "min_freq", "max_freq", 1)
+						maxFreq := 1200.0
+						if maxData, err := os.ReadFile(maxProcFile); err == nil {
+							if mf, err := strconv.ParseFloat(strings.TrimSpace(string(maxData)), 64); err == nil && mf > 0 {
+								maxFreq = mf
+							}
+						}
+						usage := (freq / maxFreq) * 100.0
+						if usage > gpuUsage {
+							gpuUsage = usage
+						}
+						if gpuUsage > 100 {
+							gpuUsage = 100
+						}
+					}
 				}
 			}
 		}

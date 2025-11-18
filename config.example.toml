@@ -1,0 +1,38 @@
+# AV1 Janitor Configuration Example
+# Copy this to ~/.config/av1janitor/config.toml and customize
+
+# FFmpeg binary path (auto-detected if not specified)
+# ffmpeg_path = "/usr/bin/ffmpeg"
+
+# Directories to watch for media files
+# The daemon will recursively scan these directories
+watched_directories = [
+    "/media/movies",
+    "/media/tv",
+    "/media/downloads"
+]
+
+# Minimum file size in bytes (default: 2 GiB)
+# Files smaller than this will be skipped
+min_file_size_bytes = 2147483648  # 2 GiB
+
+# Size gate factor (default: 0.9 = 90%)
+# Transcode output must be <= this fraction of original
+# If output is larger, it will be rejected and .av1skip will be created
+size_gate_factor = 0.9
+
+# File extensions to consider for transcoding
+media_extensions = ["mkv", "mp4", "avi", "m4v", "mov"]
+
+# Seconds to wait between directory scans (for continuous mode)
+# Only applies if using continuous scanning instead of filesystem watching
+scan_interval_seconds = 60
+
+# QSV quality settings per resolution
+# Lower values = higher quality, higher bitrate
+# Valid range: 1-51
+[qsv_quality]
+below_1080p = 25        # For 720p and below
+at_1080p = 24           # For 1080p
+at_1440p_and_above = 23 # For 1440p, 4K, and above
+

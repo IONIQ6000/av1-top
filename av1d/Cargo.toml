@@ -1,0 +1,43 @@
+[package]
+name = "av1d"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "av1d"
+path = "src/main.rs"
+
+[dependencies]
+# Local crate
+core = { path = "../core" }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Filesystem watching
+notify = { workspace = true }
+
+# System info
+sysinfo = { workspace = true }
+
+# Serialization
+serde_json = { workspace = true }
+
+# Time handling
+chrono = { workspace = true }
+
+# Logging
+log = { workspace = true }
+env_logger = { workspace = true }
+
+# CLI parsing
+clap = { workspace = true }
+
+# System calls
+libc = { workspace = true }
+

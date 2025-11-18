@@ -1,0 +1,225 @@
+#!/bin/bash
+#
+# Build Debian package for AV1 Janitor
+# Creates a .deb file that can be installed with: sudo dpkg -i av1janitor_*.deb
+#
+# Usage: ./build-deb.sh
+#
+
+set -e
+
+VERSION="0.1.0"
+ARCH="amd64"
+PACKAGE_NAME="av1janitor"
+DEB_NAME="${PACKAGE_NAME}_${VERSION}_${ARCH}"
+
+echo "Building Debian package: $DEB_NAME"
+echo ""
+
+# Build release binaries
+echo "[1/5] Building release binaries..."
+cargo build --release --workspace
+
+# Create package directory structure
+echo "[2/5] Creating package structure..."
+rm -rf "debian-package"
+mkdir -p "debian-package/$DEB_NAME"
+
+# Create DEBIAN control directory
+mkdir -p "debian-package/$DEB_NAME/DEBIAN"
+
+# Create installation directories
+mkdir -p "debian-package/$DEB_NAME/usr/local/bin"
+mkdir -p "debian-package/$DEB_NAME/etc/av1janitor"
+mkdir -p "debian-package/$DEB_NAME/etc/systemd/system"
+mkdir -p "debian-package/$DEB_NAME/usr/share/doc/av1janitor"
+
+# Copy binaries
+echo "[3/5] Copying files..."
+cp target/release/av1d "debian-package/$DEB_NAME/usr/local/bin/"
+cp target/release/av1top "debian-package/$DEB_NAME/usr/local/bin/"
+chmod +x "debian-package/$DEB_NAME/usr/local/bin/"*
+
+# Copy config example
+cp config.example.toml "debian-package/$DEB_NAME/etc/av1janitor/config.toml.example"
+
+# Copy systemd service
+cp av1janitor.service "debian-package/$DEB_NAME/etc/systemd/system/"
+
+# Copy documentation
+cp README.md "debian-package/$DEB_NAME/usr/share/doc/av1janitor/"
+cp FFMPEG_SETUP.md "debian-package/$DEB_NAME/usr/share/doc/av1janitor/" 2>/dev/null || true
+cp DEPLOYMENT.md "debian-package/$DEB_NAME/usr/share/doc/av1janitor/" 2>/dev/null || true
+
+# Create control file
+echo "[4/5] Creating control file..."
+cat > "debian-package/$DEB_NAME/DEBIAN/control" << EOF
+Package: av1janitor
+Version: $VERSION
+Section: video
+Priority: optional
+Architecture: $ARCH
+Depends: libc6, libgcc-s1, intel-media-va-driver-non-free | intel-media-va-driver
+Recommends: ffmpeg (>= 8.0), vainfo
+Maintainer: AV1 Janitor Team <av1janitor@example.com>
+Description: Automated AV1 transcoding with Intel QSV
+ AV1 Janitor automatically transcodes your media library to AV1 using
+ Intel Quick Sync Video hardware acceleration.
+ .
+ Features:
+  - Automatic FFmpeg 8.0+ detection and validation
+  - Intel QSV hardware acceleration
+  - Concurrent file processing
+  - Real-time filesystem watching
+  - Comprehensive TUI monitor
+  - TOML configuration files
+  - Graceful shutdown handling
+  - Size gate verification
+  - Atomic file operations
+Homepage: https://github.com/example/av1janitor
+EOF
+
+# Create postinst script
+cat > "debian-package/$DEB_NAME/DEBIAN/postinst" << 'EOF'
+#!/bin/bash
+set -e
+
+# Create service user if doesn't exist
+if ! id av1janitor &>/dev/null; then
+    useradd -r -s /bin/false -d /opt/av1janitor -c "AV1 Janitor Service" av1janitor
+fi
+
+# Add to GPU groups
+usermod -a -G render,video av1janitor 2>/dev/null || true
+
+# Create directories
+mkdir -p /opt/av1janitor
+mkdir -p /var/log/av1janitor
+mkdir -p /var/lib/av1janitor/jobs
+
+# Set permissions
+chown -R av1janitor:av1janitor /opt/av1janitor
+chown -R av1janitor:av1janitor /var/log/av1janitor
+chown -R av1janitor:av1janitor /var/lib/av1janitor
+
+# Copy example config if user config doesn't exist
+if [ ! -f /etc/av1janitor/config.toml ]; then
+    cp /etc/av1janitor/config.toml.example /etc/av1janitor/config.toml
+    chown av1janitor:av1janitor /etc/av1janitor/config.toml
+    chmod 644 /etc/av1janitor/config.toml
+    echo "Created default config: /etc/av1janitor/config.toml"
+    echo "Please edit it to set your media directories"
+fi
+
+# Reload systemd
+systemctl daemon-reload
+
+echo ""
+echo "AV1 Janitor installed successfully!"
+echo ""
+echo "Next steps:"
+echo "  1. Edit config: sudo nano /etc/av1janitor/config.toml"
+echo "  2. Start service: sudo systemctl start av1janitor"
+echo "  3. Enable on boot: sudo systemctl enable av1janitor"
+echo "  4. Monitor: av1top"
+echo ""
+
+exit 0
+EOF
+
+# Create postrm script
+cat > "debian-package/$DEB_NAME/DEBIAN/postrm" << 'EOF'
+#!/bin/bash
+set -e
+
+case "$1" in
+    purge)
+        # Remove user
+        if id av1janitor &>/dev/null; then
+            userdel av1janitor 2>/dev/null || true
+        fi
+        
+        # Remove data directories (optional - commented out for safety)
+        # rm -rf /var/lib/av1janitor
+        # rm -rf /var/log/av1janitor
+        # rm -rf /opt/av1janitor
+        
+        echo "AV1 Janitor purged (data directories preserved)"
+        ;;
+    remove)
+        echo "AV1 Janitor removed"
+        ;;
+esac
+
+exit 0
+EOF
+
+chmod 755 "debian-package/$DEB_NAME/DEBIAN/postinst"
+chmod 755 "debian-package/$DEB_NAME/DEBIAN/postrm"
+
+# Build the package
+echo "[5/5] Building .deb package..."
+
+# Check if dpkg-deb is available
+if command -v dpkg-deb &> /dev/null; then
+    # Use dpkg-deb if available (Linux)
+    dpkg-deb --build "debian-package/$DEB_NAME"
+    mv "debian-package/${DEB_NAME}.deb" .
+else
+    # Manual .deb creation for macOS/other systems
+    echo "dpkg-deb not found, creating .deb manually..."
+    
+    DEB_FILE="${DEB_NAME}.deb"
+    PACKAGE_DIR="debian-package/$DEB_NAME"
+    
+    # Create temporary directory for .deb components
+    TMP_DEB=$(mktemp -d)
+    
+    # Create debian-binary file
+    echo "2.0" > "$TMP_DEB/debian-binary"
+    
+    # Create control.tar.gz
+    cd "$PACKAGE_DIR/DEBIAN"
+    tar czf "$TMP_DEB/control.tar.gz" .
+    cd - > /dev/null
+    
+    # Create data.tar.gz (all files except DEBIAN)
+    cd "$PACKAGE_DIR"
+    find . -type f ! -path "./DEBIAN/*" -print0 | tar czf "$TMP_DEB/data.tar.gz" --null -T -
+    cd - > /dev/null
+    
+    # Create the .deb file using ar
+    cd "$TMP_DEB"
+    ar r "$DEB_FILE" debian-binary control.tar.gz data.tar.gz 2>/dev/null || {
+        # Fallback: create as tar.gz if ar doesn't work
+        echo "ar failed, creating tar.gz package instead..."
+        cd "$PACKAGE_DIR"
+        tar czf "../${DEB_NAME}.tar.gz" .
+        cd - > /dev/null
+        mv "$TMP_DEB/${DEB_NAME}.tar.gz" "../$DEB_FILE.tar.gz"
+        rm -rf "$TMP_DEB"
+        cd ..
+        echo ""
+        echo "✓ Package created as: ${DEB_NAME}.tar.gz"
+        echo "  (Install by extracting and copying files manually)"
+        exit 0
+    }
+    cd - > /dev/null
+    
+    # Move .deb to current directory
+    mv "$TMP_DEB/$DEB_FILE" .
+    rm -rf "$TMP_DEB"
+fi
+
+# Cleanup
+rm -rf debian-package
+
+echo ""
+echo "✓ Debian package created: ${DEB_NAME}.deb"
+echo ""
+echo "Install with:"
+echo "  sudo dpkg -i ${DEB_NAME}.deb"
+echo "  sudo apt-get install -f  # Install dependencies"
+echo ""
+echo "Package size: $(du -h ${DEB_NAME}.deb 2>/dev/null | cut -f1 || echo 'unknown')"
+

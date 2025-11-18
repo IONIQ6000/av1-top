@@ -1,0 +1,42 @@
+[Unit]
+Description=AV1 Janitor - Automated AV1 Transcoding Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=media
+Group=media
+WorkingDirectory=/opt/av1janitor
+
+# Path to the daemon binary
+ExecStart=/usr/local/bin/av1d --concurrent 2
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+
+# Timeout for graceful shutdown (allow current job to finish)
+# Set to max expected transcode time + buffer
+TimeoutStopSec=14400
+
+# Environment variables
+Environment="RUST_LOG=info"
+Environment="HOME=/home/media"
+
+# Resource limits (optional)
+LimitNOFILE=4096
+MemoryMax=2G
+
+# Security hardening (optional)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/media /home/media/.local/share/av1janitor
+
+# GPU access (required for QSV)
+SupplementaryGroups=render video
+
+[Install]
+WantedBy=multi-user.target
+

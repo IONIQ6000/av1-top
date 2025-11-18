@@ -1,0 +1,31 @@
+[package]
+name = "av1top"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "av1top"
+path = "src/main.rs"
+
+[dependencies]
+# Local crate
+core = { path = "../core" }
+
+# TUI framework
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+
+# System info
+sysinfo = { workspace = true }
+
+# Serialization for reading job files
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Time handling
+chrono = { workspace = true }
+

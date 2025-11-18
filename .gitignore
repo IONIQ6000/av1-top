@@ -1,0 +1,29 @@
+# Rust build artifacts
+/target/
+*/target/
+
+# Cargo lock file (for libraries, but OK to commit for binaries)
+# Cargo.lock
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test data
+/test_media/
+
+# Generated files
+*.log
+*.json
+!Cargo.toml
+
+# Local config (when implemented)
+config.toml
+

@@ -23,13 +23,27 @@ echo ""
 # Function to check FFmpeg version
 check_ffmpeg_version() {
     if command -v ffmpeg &> /dev/null; then
-        VERSION=$(ffmpeg -version 2>&1 | head -1 | grep -oP 'ffmpeg version \K[0-9]+\.[0-9]+' || echo "")
+        VERSION_LINE=$(ffmpeg -version 2>&1 | head -1)
+        
+        # Check for semantic version (e.g., "ffmpeg version 8.0")
+        VERSION=$(echo "$VERSION_LINE" | grep -oP 'ffmpeg version \K[0-9]+\.[0-9]+' || echo "")
         if [ -n "$VERSION" ]; then
             MAJOR=$(echo "$VERSION" | cut -d. -f1)
             MINOR=$(echo "$VERSION" | cut -d. -f2)
             if [ "$MAJOR" -gt 8 ] || ([ "$MAJOR" -eq 8 ] && [ "$MINOR" -ge 0 ]); then
                 return 0
             fi
+        fi
+        
+        # Check for git build version (e.g., "N-71064-gd5e603ddc0" or "n8.0")
+        # If it contains "n8.0" or "8.0" in the version string, it's FFmpeg 8.0+
+        if echo "$VERSION_LINE" | grep -qiE '(n8\.0|8\.0|ffmpeg-n8\.0)'; then
+            return 0
+        fi
+        
+        # Check if it's from BtbN FFmpeg-Builds (which are FFmpeg 8.0+)
+        if echo "$VERSION_LINE" | grep -qi 'BtbN\|FFmpeg-Builds'; then
+            return 0
         fi
     fi
     return 1

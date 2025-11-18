@@ -637,6 +637,64 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 							}
 						}
 						
+						// Read GPU memory from sysfs
+						if gpuMemoryMB == 0 {
+							// Try multiple memory file locations
+							memPaths := []string{
+								// Card-level memory files
+								filepath.Join(drmDir, entry.Name(), "mem_info_vram_total"),
+								filepath.Join(drmDir, entry.Name(), "gt", "gt0", "meminfo"),
+								filepath.Join(drmDir, entry.Name(), "gt", "gt0", "memory"),
+								// Device path memory files
+								filepath.Join(absDevicePath, "mem_info_vram_total"),
+								filepath.Join(absDevicePath, "drm", entry.Name(), "gt", "gt0", "meminfo"),
+							}
+							
+							for _, memFile := range memPaths {
+								if data, err := os.ReadFile(memFile); err == nil {
+									content := strings.TrimSpace(string(data))
+									// Try parsing as bytes (convert to MB)
+									if bytes, err := strconv.ParseUint(content, 10, 64); err == nil && bytes > 0 {
+										gpuMemoryMB = bytes / (1024 * 1024) // Convert bytes to MB
+										break
+									}
+									// Try parsing as MB directly
+									if strings.HasSuffix(content, "MB") || strings.HasSuffix(content, "MiB") {
+										numStr := strings.TrimSuffix(strings.TrimSuffix(content, "MB"), "MiB")
+										if mem, err := strconv.ParseUint(strings.TrimSpace(numStr), 10, 64); err == nil && mem > 0 {
+											gpuMemoryMB = mem
+											break
+										}
+									}
+								}
+							}
+							
+							// If still 0, try reading from meminfo format (if available)
+							if gpuMemoryMB == 0 {
+								meminfoPath := filepath.Join(drmDir, entry.Name(), "gt", "gt0", "meminfo")
+								if data, err := os.ReadFile(meminfoPath); err == nil {
+									// Parse meminfo format: "Total: 8192 MB" or similar
+									lines := strings.Split(string(data), "\n")
+									for _, line := range lines {
+										if strings.Contains(strings.ToLower(line), "total") {
+											parts := strings.Fields(line)
+											for i, part := range parts {
+												if (part == "MB" || part == "MiB") && i > 0 {
+													if mem, err := strconv.ParseUint(parts[i-1], 10, 64); err == nil && mem > 0 {
+														gpuMemoryMB = mem
+														break
+													}
+												}
+											}
+											if gpuMemoryMB > 0 {
+												break
+											}
+										}
+									}
+								}
+							}
+						}
+						
 						// Found Intel GPU, no need to check other cards
 						break
 					}

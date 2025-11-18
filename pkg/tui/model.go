@@ -37,10 +37,6 @@ type Model struct {
 	jobsDir     string
 	lastReload  time.Time
 
-	// Console logs
-	consoleLogs []string
-	lastLogFetch time.Time
-
 	// Update ticker
 	ticker *time.Ticker
 	
@@ -57,10 +53,9 @@ func NewModel() Model {
 	}
 
 	return Model{
-		jobsDir:     jobsDir,
-		lastReload:  time.Now(),
-		lastLogFetch: time.Now(),
-		ticker:      time.NewTicker(time.Second),
+		jobsDir:    jobsDir,
+		lastReload: time.Now(),
+		ticker:     time.NewTicker(time.Second),
 	}
 }
 
@@ -68,7 +63,6 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.updateSystemMetrics(),
 		m.reloadJobs(),
-		m.fetchLogs(),
 		m.tick(),
 	)
 }
@@ -100,11 +94,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.reloadJobs())
 		}
 		
-		// Fetch logs every 2 seconds
-		if time.Since(m.lastLogFetch) > 2*time.Second {
-			cmds = append(cmds, m.fetchLogs())
-		}
-		
 		cmds = append(cmds, m.tick())
 		return m, tea.Batch(cmds...)
 
@@ -125,10 +114,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastReload = time.Now()
 		return m, nil
 
-	case logsMsg:
-		m.consoleLogs = msg.logs
-		m.lastLogFetch = time.Now()
-		return m, nil
 	}
 
 	return m, nil
@@ -151,9 +136,6 @@ func (m Model) View() string {
 	// Jobs table
 	jobsTable := m.renderJobsTable()
 
-	// Console logs
-	logs := m.renderLogs()
-
 	// Footer
 	footer := m.renderFooter()
 
@@ -164,7 +146,6 @@ func (m Model) View() string {
 		stats,
 		currentJob,
 		jobsTable,
-		logs,
 		footer,
 	)
 }
@@ -172,40 +153,56 @@ func (m Model) View() string {
 func (m Model) renderHeader() string {
 	stats := m.getQueueStats()
 	
+	// Modern color scheme with functional meaning
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("86"))
+		Foreground(lipgloss.Color("51")). // Cyan for primary title
+		Background(lipgloss.Color("235"))  // Dark background
 
+	// Functional colors
 	queueStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("226"))
+		Foreground(lipgloss.Color("39")). // Blue for pending/queued
+		Bold(true)
 
 	runningStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("46"))
+		Foreground(lipgloss.Color("214")). // Orange/Yellow for active/running
+		Bold(true)
 
 	successStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("46"))
+		Foreground(lipgloss.Color("46")). // Green for success
+		Bold(true)
 
 	failedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("196"))
+		Foreground(lipgloss.Color("196")). // Red for errors
+		Bold(true)
 
 	skippedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240"))
+		Foreground(lipgloss.Color("240")) // Gray for inactive/skipped
 
-	header := fmt.Sprintf("%s │ Queue: %s │ Running: %s │ ✓ %s │ ✗ %s │ ⊘ %s",
-		titleStyle.Render("AV1 Janitor"),
+	separator := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("238")).
+		Render(" • ")
+
+	header := fmt.Sprintf("%s%sQueue: %s%sRunning: %s%s✓ %s%s✗ %s%s⊘ %s",
+		titleStyle.Render(" AV1 Janitor "),
+		separator,
 		queueStyle.Render(fmt.Sprintf("%d", stats.pending)),
+		separator,
 		runningStyle.Render(fmt.Sprintf("%d", stats.running)),
+		separator,
 		successStyle.Render(fmt.Sprintf("%d", stats.completed)),
+		separator,
 		failedStyle.Render(fmt.Sprintf("%d", stats.failed)),
+		separator,
 		skippedStyle.Render(fmt.Sprintf("%d", stats.skipped)),
 	)
 
-	border := strings.Repeat("─", m.width-2)
 	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("86")).
+		Width(m.width).
 		Padding(0, 1).
-		Render(fmt.Sprintf("%s\n%s", header, border))
+		Background(lipgloss.Color("235")).
+		Foreground(lipgloss.Color("255")).
+		Render(header)
 }
 
 func (m Model) renderSystemStats() string {
@@ -227,51 +224,55 @@ func (m Model) renderSystemStats() string {
 	// I/O
 	ioInfo := fmt.Sprintf("Read:  %.1f MB/s\nWrite: %.1f MB/s", m.ioReadMB, m.ioWriteMB)
 
-	cpuPanel := lipgloss.NewStyle().
+	// Modern panel styling with subtle borders
+	panelStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("86")).
-		Padding(0, 1).
-		Width(m.width/4 - 2).
-		Render(fmt.Sprintf("%s\n%s", cpuBar, cpuInfo))
+		BorderForeground(lipgloss.Color("238")). // Subtle gray border
+		Padding(1, 2).
+		Width(m.width/4 - 3).
+		Background(lipgloss.Color("236")) // Dark background
 
-	gpuPanel := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("86")).
-		Padding(0, 1).
-		Width(m.width/4 - 2).
-		Render(fmt.Sprintf("%s\n%s", gpuBar, gpuInfo))
+	infoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("252")) // Light gray for info text
 
-	memPanel := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("86")).
-		Padding(0, 1).
-		Width(m.width/4 - 2).
-		Render(fmt.Sprintf("%s\n%s", memBar, memInfo))
-
-	ioPanel := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("86")).
-		Padding(0, 1).
-		Width(m.width/4 - 2).
-		Render(fmt.Sprintf("I/O\n%s", ioInfo))
+	cpuPanel := panelStyle.Render(fmt.Sprintf("%s\n%s", cpuBar, infoStyle.Render(cpuInfo)))
+	gpuPanel := panelStyle.Render(fmt.Sprintf("%s\n%s", gpuBar, infoStyle.Render(gpuInfo)))
+	memPanel := panelStyle.Render(fmt.Sprintf("%s\n%s", memBar, infoStyle.Render(memInfo)))
+	ioPanel := panelStyle.Render(fmt.Sprintf("%s\n%s", 
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Render("I/O"),
+		infoStyle.Render(ioInfo)))
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, cpuPanel, gpuPanel, memPanel, ioPanel)
 }
 
 func (m Model) renderBar(title string, value, warnThreshold float64) string {
-	barWidth := 20
+	barWidth := 24
 	filled := int((value / 100.0) * float64(barWidth))
 	if filled > barWidth {
 		filled = barWidth
 	}
 
-	color := "46" // Green
-	if value > warnThreshold {
-		color = "196" // Red
+	// Functional color coding: green -> yellow -> red based on thresholds
+	var color string
+	if value < warnThreshold*0.6 {
+		color = "46" // Green - healthy
+	} else if value < warnThreshold {
+		color = "226" // Yellow - getting high
+	} else {
+		color = "196" // Red - critical
 	}
 
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
-	return fmt.Sprintf("%s\n%s", title, lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(bar))
+	// Modern bar with gradient effect
+	filledBar := strings.Repeat("█", filled)
+	emptyBar := strings.Repeat("░", barWidth-filled)
+	bar := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(filledBar) +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Render(emptyBar)
+	
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("255"))
+	
+	return fmt.Sprintf("%s\n%s", titleStyle.Render(title), bar)
 }
 
 func (m Model) renderCurrentJob() string {
@@ -284,12 +285,20 @@ func (m Model) renderCurrentJob() string {
 		}
 	}
 
+	panelStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("238")).
+		Padding(1, 2).
+		Background(lipgloss.Color("236"))
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("214")) // Orange for active job
+
 	if runningJob == nil {
-		return lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("86")).
-			Padding(0, 1).
-			Render("Current Transcode\nNo active transcoding job")
+		return panelStyle.Render(fmt.Sprintf("%s\n%s",
+			titleStyle.Render("Current Transcode"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("No active transcoding job")))
 	}
 
 	filename := runningJob.FilePath
@@ -299,30 +308,45 @@ func (m Model) renderCurrentJob() string {
 		filename = filepath.Base(filename)
 	}
 
-	info := fmt.Sprintf("File: %s\nStatus: %s\nStarted: %s",
-		filename,
-		runningJob.Status,
-		runningJob.CreatedAt)
+	statusColor := "214" // Orange for running
+	statusStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(statusColor)).
+		Bold(true)
 
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("86")).
-		Padding(0, 1).
-		Render(fmt.Sprintf("Current Transcode\n%s", info))
+	infoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	info := fmt.Sprintf("File: %s\nStatus: %s\nStarted: %s",
+		infoStyle.Render(filename),
+		statusStyle.Render(string(runningJob.Status)),
+		infoStyle.Render(runningJob.CreatedAt))
+
+	return panelStyle.Render(fmt.Sprintf("%s\n%s", titleStyle.Render("Current Transcode"), info))
 }
 
 func (m Model) renderJobsTable() string {
+	panelStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("238")).
+		Padding(1, 2).
+		Background(lipgloss.Color("236"))
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("51")) // Cyan for section title
+
 	if len(m.jobs) == 0 {
-		return lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("86")).
-			Padding(0, 1).
-			Render("Transcode History\nNo jobs found")
+		return panelStyle.Render(fmt.Sprintf("%s\n%s",
+			titleStyle.Render("Transcode History"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("No jobs found")))
 	}
 
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("255")).
+		Underline(true)
+
 	var rows []string
-	rows = append(rows, "Status │ File │ Created")
-	rows = append(rows, strings.Repeat("─", m.width-4))
+	rows = append(rows, headerStyle.Render("Status │ File │ Created"))
+	rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Render(strings.Repeat("─", m.width-8)))
 
 	// Sort jobs: running first, then by CreatedAt (newest first)
 	sortedJobs := make([]*persistence.Job, len(m.jobs))
@@ -349,21 +373,39 @@ func (m Model) renderJobsTable() string {
 		maxShow = len(sortedJobs)
 	}
 
+	rowStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	separator := lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Render(" │ ")
+
 	for i := 0; i < maxShow; i++ {
 		job := sortedJobs[i]
-		statusColor := "240" // Gray
+		var statusColor string
+		var statusSymbol string
 		switch job.Status {
 		case persistence.StatusComplete:
-			statusColor = "46" // Green
+			statusColor = "46" // Green for success
+			statusSymbol = "✓"
 		case persistence.StatusFailed:
-			statusColor = "196" // Red
+			statusColor = "196" // Red for errors
+			statusSymbol = "✗"
 		case persistence.StatusRunning:
-			statusColor = "226" // Yellow
+			statusColor = "214" // Orange for active
+			statusSymbol = "▶"
 		case persistence.StatusPending:
-			statusColor = "33" // Blue
+			statusColor = "39" // Blue for queued
+			statusSymbol = "○"
+		case persistence.StatusSkipped:
+			statusColor = "240" // Gray for skipped
+			statusSymbol = "⊘"
+		default:
+			statusColor = "240"
+			statusSymbol = "•"
 		}
 
-		status := lipgloss.NewStyle().Foreground(lipgloss.Color(statusColor)).Render(string(job.Status))
+		status := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(statusColor)).
+			Bold(true).
+			Render(fmt.Sprintf("%s %s", statusSymbol, string(job.Status)))
+
 		filename := job.FilePath
 		if filename == "" {
 			filename = "(unknown)"
@@ -374,49 +416,46 @@ func (m Model) renderJobsTable() string {
 			filename = filename[:37] + "..."
 		}
 
-		rows = append(rows, fmt.Sprintf("%s │ %s │ %s", status, filename, job.CreatedAt))
+		rows = append(rows, fmt.Sprintf("%s%s%s%s%s",
+			status,
+			separator,
+			rowStyle.Render(filename),
+			separator,
+			rowStyle.Render(job.CreatedAt)))
 	}
 
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("86")).
-		Padding(0, 1).
-		Render(strings.Join(rows, "\n"))
-}
-
-func (m Model) renderLogs() string {
-	if len(m.consoleLogs) == 0 {
-		return lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("86")).
-			Padding(0, 1).
-			Render("Console Logs\nNo logs available")
-	}
-
-	// Show last 5 log lines
-	start := len(m.consoleLogs) - 5
-	if start < 0 {
-		start = 0
-	}
-
-	logs := m.consoleLogs[start:]
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("86")).
-		Padding(0, 1).
-		Render(fmt.Sprintf("Console Logs\n%s", strings.Join(logs, "\n")))
+	return panelStyle.Render(fmt.Sprintf("%s\n%s",
+		titleStyle.Render("Transcode History"),
+		strings.Join(rows, "\n")))
 }
 
 func (m Model) renderFooter() string {
 	stats := m.getQueueStats()
-	message := "Press 'q' to quit, 'r' to refresh"
+	
+	keyStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("214")).
+		Bold(true)
+	
+	textStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240"))
+	
+	message := fmt.Sprintf("%s %s %s %s",
+		keyStyle.Render("q"),
+		textStyle.Render("quit"),
+		keyStyle.Render("r"),
+		textStyle.Render("refresh"))
+	
 	if stats.pending == 0 && stats.running == 0 {
-		message = "Waiting for jobs... | " + message
+		waitStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39")).
+			Italic(true)
+		message = waitStyle.Render("Waiting for jobs...") + " • " + message
 	}
 
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
+		Width(m.width).
 		Padding(0, 1).
+		Background(lipgloss.Color("235")).
 		Render(message)
 }
 
@@ -461,7 +500,6 @@ type systemMetricsMsg struct {
 	gpuMemoryUsedMB uint64
 }
 type jobsMsg struct{ jobs []*persistence.Job }
-type logsMsg struct{ logs []string }
 
 func (m Model) tick() tea.Cmd {
 	return func() tea.Msg {
@@ -873,34 +911,6 @@ func (m Model) reloadJobs() tea.Cmd {
 	}
 }
 
-func (m Model) fetchLogs() tea.Cmd {
-	return func() tea.Msg {
-		// Try journalctl first
-		cmd := exec.Command("journalctl", "-u", "av1janitor", "-n", "10", "--no-pager")
-		output, err := cmd.Output()
-		if err == nil {
-			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-			// Keep only last 5 lines
-			if len(lines) > 5 {
-				lines = lines[len(lines)-5:]
-			}
-			return logsMsg{logs: lines}
-		}
-
-		// Fallback to log file
-		logFile := "/var/log/av1janitor/av1d.log"
-		data, err := os.ReadFile(logFile)
-		if err != nil {
-			return logsMsg{logs: []string{}}
-		}
-
-		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-		if len(lines) > 5 {
-			lines = lines[len(lines)-5:]
-		}
-		return logsMsg{logs: lines}
-	}
-}
 
 // Helper functions
 func formatBytes(bytes uint64) string {

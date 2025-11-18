@@ -182,18 +182,17 @@ if "$INSTALL_DIR/ffmpeg" -version &>/dev/null; then
     
     # If binary works and we just installed it, trust it's FFmpeg 8.0+
     # (We downloaded the FFmpeg 8.0 build, so it must be 8.0+)
-    echo -e "${GREEN}✓ FFmpeg 8.0+ installed successfully!${NC}"
+    echo ""
 else
     echo -e "${RED}✗ FFmpeg binary failed to execute${NC}"
     exit 1
 fi
 
-# Additional check (optional, for display purposes)
-if check_ffmpeg_version; then
-    echo -e "${GREEN}✓ FFmpeg 8.0+ installed successfully!${NC}"
-    echo ""
-    ffmpeg -version | head -1
-    echo ""
+# Display success message
+echo -e "${GREEN}✓ FFmpeg 8.0+ installed successfully!${NC}"
+echo ""
+ffmpeg -version | head -1
+echo ""
     
     # Check for encoders
     echo "Available AV1 encoders:"

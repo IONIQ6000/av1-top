@@ -496,7 +496,8 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 		gpuMemoryMB := uint64(0)
 		
 		// Method 1: Try intel_gpu_top (if available and accessible)
-		cmd := exec.Command("sh", "-c", "timeout 1 intel_gpu_top -l -n 1 2>/dev/null || true")
+		// intel_gpu_top doesn't support -n flag, use timeout wrapper
+		cmd := exec.Command("sh", "-c", "timeout 1s intel_gpu_top -l -s 1000 2>/dev/null | head -20 || true")
 		output, err := cmd.Output()
 		if err == nil && len(output) > 0 {
 			// Parse intel_gpu_top output

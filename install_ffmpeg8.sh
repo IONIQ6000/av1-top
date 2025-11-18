@@ -102,9 +102,12 @@ if $DOWNLOAD_CMD --progress=bar:force:noscroll -q --show-progress "$STATIC_URL" 
     
     echo -e "${YELLOW}[3/4] Installing binaries...${NC}"
     
+    # Ensure install directory exists
+    mkdir -p "$INSTALL_DIR"
+    
     # Install binaries
-    cp "$FFMPEG_DIR/ffmpeg" "$INSTALL_DIR/"
-    cp "$FFMPEG_DIR/ffprobe" "$INSTALL_DIR/"
+    cp "$FFMPEG_DIR/ffmpeg" "$INSTALL_DIR/ffmpeg"
+    cp "$FFMPEG_DIR/ffprobe" "$INSTALL_DIR/ffprobe"
     chmod +x "$INSTALL_DIR/ffmpeg"
     chmod +x "$INSTALL_DIR/ffprobe"
     

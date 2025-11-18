@@ -52,6 +52,7 @@ pub fn build_transcode_command(
     
     // Initialize VAAPI device with explicit DRM render node path
     // Find the first renderD* device
+    let mut use_vaapi_device = false;
     if let Ok(entries) = std::fs::read_dir("/dev/dri") {
         if let Some(render_device) = entries
             .filter_map(|e| e.ok())
@@ -59,14 +60,20 @@ pub fn build_transcode_command(
             .map(|e| format!("/dev/dri/{}", e.file_name().to_string_lossy()))
         {
             // Use VAAPI with explicit device path
-            cmd.arg("-init_hw_device").arg(format!("vaapi=va:{}", render_device));
+            // Format: vaapi=name:/path/to/device
+            let device_arg = format!("vaapi=va:{}", render_device);
+            eprintln!("[DEBUG] Initializing VAAPI device: {}", device_arg);
+            cmd.arg("-init_hw_device").arg(device_arg);
             cmd.arg("-filter_hw_device").arg("va");
+            use_vaapi_device = true;
         } else {
+            eprintln!("[DEBUG] No renderD* device found, using QSV fallback");
             // Fallback to QSV if no render device found
             cmd.arg("-init_hw_device").arg("qsv=hw");
             cmd.arg("-filter_hw_device").arg("hw");
         }
     } else {
+        eprintln!("[DEBUG] /dev/dri not accessible, using QSV fallback");
         // Fallback to QSV if /dev/dri doesn't exist
         cmd.arg("-init_hw_device").arg("qsv=hw");
         cmd.arg("-filter_hw_device").arg("hw");
@@ -126,14 +133,9 @@ pub fn build_transcode_command(
 
     // === Video filter chain ===
     
-    // Determine if we're using VAAPI or QSV based on hardware device initialization
-    let use_vaapi = std::fs::read_dir("/dev/dri")
-        .map(|entries| {
-            entries
-                .filter_map(|e| e.ok())
-                .any(|e| e.file_name().to_string_lossy().starts_with("renderD"))
-        })
-        .unwrap_or(false);
+    // Use the same VAAPI detection as hardware initialization
+    // (re-check to be safe, but should match the initialization above)
+    let use_vaapi = use_vaapi_device;
     
     // Build the video filter:
     // 1. Pad to even dimensions (required for encoding)

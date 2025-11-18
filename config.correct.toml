@@ -1,0 +1,25 @@
+# AV1 Janitor Configuration
+
+# Directories to watch for media files
+watched_directories = ["/main-library-2/Media/Movies"]
+
+# Minimum file size in bytes (default: 2 GiB)
+min_file_size_bytes = 2147483648
+
+# Size gate factor (default: 0.9 = 90%)
+# Transcode output must be <= this fraction of original
+size_gate_factor = 0.9
+
+# File extensions to consider for transcoding
+media_extensions = ["mkv", "mp4", "avi"]
+
+# Seconds to wait between directory scans
+scan_interval_seconds = 60
+
+# QSV quality settings per resolution
+# Lower values = higher quality, higher bitrate
+[qsv_quality]
+below_1080p = 25        # For 720p and below
+at_1080p = 24           # For 1080p
+at_1440p_and_above = 23 # For 1440p, 4K, and above
+

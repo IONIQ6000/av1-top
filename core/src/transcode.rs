@@ -101,29 +101,35 @@ pub fn build_ffmpeg_command(_ffmpeg_path: &Path, params: &TranscodeParams) -> Ve
     args.push("-hwaccel".to_string());
     args.push("none".to_string()); // Don't use hwaccel for input
     
-    // Initialize QSV hardware device
-    // For LXC containers, we need to use VAAPI as the child device since
-    // direct DRM access may not work properly with oneVPL
-    // Try VAAPI first, then fall back to direct QSV
-    let qsv_device = if let Ok(entries) = std::fs::read_dir("/dev/dri") {
-        // Check if we have renderD* devices
-        let has_render = entries
+    // Initialize hardware devices for QSV
+    // In containers, we need to initialize VAAPI first, then use it as child device for QSV
+    // This is because oneVPL may not have direct DRM access in containers
+    if let Ok(entries) = std::fs::read_dir("/dev/dri") {
+        // Find first renderD* device
+        if let Some(render_device) = entries
             .filter_map(|e| e.ok())
-            .any(|e| e.file_name().to_string_lossy().starts_with("renderD"));
-        
-        if has_render {
-            // Use VAAPI as child device - this works better in containers
-            // VAAPI will handle DRM access, and QSV will use VAAPI
-            "qsv=hw,child_device_type=vaapi".to_string()
+            .find(|e| e.file_name().to_string_lossy().starts_with("renderD"))
+        {
+            let render_path = render_device.path();
+            
+            // Initialize VAAPI device first (named "va")
+            args.push("-init_hw_device".to_string());
+            args.push(format!("vaapi=va:{}", render_path.display()));
+            
+            // Then initialize QSV using VAAPI device (use @ to reference named device)
+            args.push("-init_hw_device".to_string());
+            args.push("qsv=hw@va".to_string());
         } else {
-            "qsv=hw".to_string()
+            // No render device found, try direct QSV initialization
+            args.push("-init_hw_device".to_string());
+            args.push("qsv=hw".to_string());
         }
     } else {
-        "qsv=hw".to_string()
-    };
+        // No /dev/dri, try basic QSV
+        args.push("-init_hw_device".to_string());
+        args.push("qsv=hw".to_string());
+    }
     
-    args.push("-init_hw_device".to_string());
-    args.push(qsv_device);
     args.push("-filter_hw_device".to_string());
     args.push("hw".to_string());
     

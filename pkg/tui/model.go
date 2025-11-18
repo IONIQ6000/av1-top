@@ -702,13 +702,11 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 								// Read from PCI device resource file (text format)
 								// /sys/bus/pci/devices/0000:XX:XX.X/resource
 								devicePath := filepath.Join(drmDir, entry.Name(), "device")
-								if link, err := os.Readlink(devicePath); err == nil {
-									// Resolve to absolute path
-									absDevicePath := filepath.Join(drmDir, entry.Name(), link)
-									absDevicePath = filepath.Clean(absDevicePath)
-									
+								// Use EvalSymlinks to properly resolve all symlinks
+								resolvedPath, err := filepath.EvalSymlinks(devicePath)
+								if err == nil {
 									// Read the text resource file (not binary resource0, resource1, etc.)
-									resourceFile := filepath.Join(absDevicePath, "resource")
+									resourceFile := filepath.Join(resolvedPath, "resource")
 									if data, err := os.ReadFile(resourceFile); err == nil {
 										// Format: one line per resource, "0xSTART 0xEND 0xFLAGS"
 										lines := strings.Split(string(data), "\n")

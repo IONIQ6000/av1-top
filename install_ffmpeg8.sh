@@ -48,13 +48,33 @@ if check_ffmpeg_version; then
     exit 0
 fi
 
-echo -e "${YELLOW}[1/4] Downloading FFmpeg 8.0+ static build...${NC}"
+echo -e "${YELLOW}[1/4] Installing wget (if needed)...${NC}"
+if ! command -v wget &> /dev/null; then
+    apt-get update -qq
+    apt-get install -y -qq wget || {
+        echo -e "${YELLOW}⚠ wget not available, trying curl...${NC}"
+        if ! command -v curl &> /dev/null; then
+            apt-get install -y -qq curl || {
+                echo -e "${RED}✗ Cannot install wget or curl${NC}"
+                exit 1
+            }
+        fi
+    }
+fi
+
+echo -e "${YELLOW}[2/4] Downloading FFmpeg 8.0+ static build...${NC}"
 
 # Try to download static build from johnvansickle.com
 STATIC_URL="https://johnvansickle.com/ffmpeg/builds/ffmpeg-git-amd64-static.tar.xz"
 
 echo "Downloading from: $STATIC_URL"
-if wget --progress=bar:force:noscroll -q --show-progress "$STATIC_URL" -O ffmpeg-static.tar.xz 2>&1; then
+DOWNLOAD_CMD="wget"
+if ! command -v wget &> /dev/null; then
+    DOWNLOAD_CMD="curl -L -o"
+fi
+
+if $DOWNLOAD_CMD --progress=bar:force:noscroll -q --show-progress "$STATIC_URL" -O ffmpeg-static.tar.xz 2>&1 || \
+   curl -L --progress-bar "$STATIC_URL" -o ffmpeg-static.tar.xz 2>&1; then
     echo -e "${GREEN}✓ Download complete${NC}"
     
     echo -e "${YELLOW}[2/4] Extracting...${NC}"
@@ -127,41 +147,66 @@ else
     # Install build dependencies
     echo -e "${YELLOW}[1/5] Installing build dependencies...${NC}"
     apt-get update -qq
+    
+    # Core dependencies (required)
     apt-get install -y -qq \
         build-essential \
         yasm \
         cmake \
         libtool \
-        libc6-dev \
+        pkg-config \
+        wget \
+        curl \
+        git \
+        || {
+            echo -e "${RED}✗ Failed to install core dependencies${NC}"
+            exit 1
+        }
+    
+    # Optional codec libraries (install what's available)
+    echo -e "${YELLOW}Installing optional codec libraries...${NC}"
+    apt-get install -y -qq \
         libx264-dev \
         libx265-dev \
         libnuma-dev \
         libvpx-dev \
-        libfdk-aac-dev \
         libmp3lame-dev \
         libopus-dev \
         libvorbis-dev \
         libtheora-dev \
         libxvidcore-dev \
-        libx264-dev \
-        libx265-dev \
-        pkg-config \
-        wget \
-        git \
-        || {
-            echo -e "${RED}✗ Failed to install dependencies${NC}"
-            exit 1
-        }
+        2>/dev/null || echo -e "${YELLOW}⚠ Some optional libraries not available, continuing...${NC}"
+    
+    # Try to install libfdk-aac-dev (may not be available)
+    apt-get install -y -qq libfdk-aac-dev 2>/dev/null || \
+        echo -e "${YELLOW}⚠ libfdk-aac-dev not available, skipping...${NC}"
     
     # Download FFmpeg source
     echo -e "${YELLOW}[2/5] Downloading FFmpeg source...${NC}"
     FFMPEG_VERSION="8.0"
-    wget -q --show-progress "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" || \
-    wget -q --show-progress "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" -O ffmpeg-${FFMPEG_VERSION}.tar.gz || {
-        echo -e "${YELLOW}Trying git clone instead...${NC}"
-        git clone --depth 1 --branch release/8.0 https://git.ffmpeg.org/ffmpeg.git ffmpeg-source || \
-        git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git ffmpeg-source
-    }
+    
+    # Try wget first, fall back to curl
+    if command -v wget &> /dev/null; then
+        wget -q --show-progress "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" 2>/dev/null || \
+        wget -q --show-progress "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" -O ffmpeg-${FFMPEG_VERSION}.tar.gz 2>/dev/null || {
+            echo -e "${YELLOW}Trying git clone instead...${NC}"
+            git clone --depth 1 --branch release/8.0 https://git.ffmpeg.org/ffmpeg.git ffmpeg-source 2>/dev/null || \
+            git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git ffmpeg-source 2>/dev/null || {
+                echo -e "${RED}✗ Failed to download FFmpeg source${NC}"
+                exit 1
+            }
+        }
+    else
+        curl -L --progress-bar "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" -o "ffmpeg-${FFMPEG_VERSION}.tar.xz" 2>/dev/null || \
+        curl -L --progress-bar "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" -o "ffmpeg-${FFMPEG_VERSION}.tar.gz" 2>/dev/null || {
+            echo -e "${YELLOW}Trying git clone instead...${NC}"
+            git clone --depth 1 --branch release/8.0 https://git.ffmpeg.org/ffmpeg.git ffmpeg-source 2>/dev/null || \
+            git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git ffmpeg-source 2>/dev/null || {
+                echo -e "${RED}✗ Failed to download FFmpeg source${NC}"
+                exit 1
+            }
+        }
+    fi
     
     if [ -f "ffmpeg-${FFMPEG_VERSION}.tar.xz" ]; then
         tar xf "ffmpeg-${FFMPEG_VERSION}.tar.xz"
@@ -178,44 +223,32 @@ else
     
     # Configure and build
     echo -e "${YELLOW}[3/5] Configuring FFmpeg (this may take a few minutes)...${NC}"
-    ./configure \
-        --prefix=/usr/local \
-        --enable-gpl \
-        --enable-version3 \
-        --enable-nonfree \
-        --enable-libx264 \
-        --enable-libx265 \
-        --enable-libvpx \
-        --enable-libfdk-aac \
-        --enable-libmp3lame \
-        --enable-libopus \
-        --enable-libvorbis \
-        --enable-libtheora \
-        --enable-libxvid \
-        --enable-libv4l2 \
-        --enable-libdrm \
-        --enable-vaapi \
-        --enable-libmfx \
-        --enable-libvpl \
-        --enable-libvmaf \
-        --enable-shared \
-        --enable-pic \
-        --disable-debug \
-        --disable-doc \
-        || {
-            echo -e "${YELLOW}⚠ Some optional libraries not found, continuing with basic build...${NC}"
-            ./configure \
-                --prefix=/usr/local \
-                --enable-gpl \
-                --enable-version3 \
-                --enable-shared \
-                --disable-debug \
-                --disable-doc \
-                || {
-                    echo -e "${RED}✗ Configuration failed${NC}"
-                    exit 1
-                }
-        }
+    
+    # Build configure command with available libraries
+    CONFIGURE_ARGS="--prefix=/usr/local --enable-gpl --enable-version3 --enable-shared --disable-debug --disable-doc"
+    
+    # Add optional libraries if available
+    pkg-config --exists libx264 && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libx264" || echo "⚠ libx264 not found"
+    pkg-config --exists x265 && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libx265" || echo "⚠ libx265 not found"
+    pkg-config --exists vpx && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libvpx" || echo "⚠ libvpx not found"
+    pkg-config --exists fdk-aac && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libfdk-aac" || echo "⚠ libfdk-aac not found"
+    pkg-config --exists libmp3lame && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libmp3lame" || echo "⚠ libmp3lame not found"
+    pkg-config --exists opus && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libopus" || echo "⚠ libopus not found"
+    
+    echo "Configure args: $CONFIGURE_ARGS"
+    ./configure $CONFIGURE_ARGS || {
+        echo -e "${YELLOW}⚠ Configuration failed, trying minimal build...${NC}"
+        ./configure \
+            --prefix=/usr/local \
+            --enable-gpl \
+            --enable-shared \
+            --disable-debug \
+            --disable-doc \
+            || {
+                echo -e "${RED}✗ Configuration failed${NC}"
+                exit 1
+            }
+    }
     
     echo -e "${YELLOW}[4/5] Building FFmpeg (this will take 10-30 minutes)...${NC}"
     make -j$(nproc) || {

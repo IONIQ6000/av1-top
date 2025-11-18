@@ -17,9 +17,10 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Gauge, Paragraph, Row, Table},
     Frame, Terminal,
 };
-use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fs;
 use std::io;
+use std::process::Command;
 use std::time::{Duration, Instant};
 use sysinfo::{Disks, System};
 
@@ -81,6 +82,12 @@ struct App {
     
     /// Network statistics (for remote access info)
     network_stats: NetworkStats,
+    
+    /// Console log lines (from daemon logs)
+    console_logs: VecDeque<String>,
+    
+    /// Last time we fetched logs
+    last_log_fetch: Instant,
 }
 
 /// I/O statistics
@@ -148,11 +155,18 @@ impl App {
             io_stats: IoStats::default(),
             gpu_stats: GpuStats::default(),
             network_stats: NetworkStats::default(),
+            console_logs: VecDeque::with_capacity(100),
+            last_log_fetch: Instant::now(),
         }
     }
 
     /// Update all metrics
     fn update(&mut self) {
+        // Fetch console logs every 2 seconds
+        if self.last_log_fetch.elapsed() >= Duration::from_secs(2) {
+            self.fetch_console_logs();
+            self.last_log_fetch = Instant::now();
+        }
         let now = Instant::now();
 
         // Update system info every second
@@ -279,6 +293,57 @@ impl App {
             total: self.jobs.len(),
         }
     }
+    
+    /// Fetch recent console logs from journalctl
+    fn fetch_console_logs(&mut self) {
+        // Try to get recent logs from journalctl
+        let output = Command::new("journalctl")
+            .args(&["-u", "av1janitor", "-n", "20", "--no-pager", "-o", "short"])
+            .output();
+        
+        if let Ok(output) = output {
+            if output.status.success() {
+                let log_text = String::from_utf8_lossy(&output.stdout);
+                let lines: Vec<&str> = log_text.lines().collect();
+                
+                // Keep only the last 50 lines
+                self.console_logs.clear();
+                for line in lines.iter().rev().take(50) {
+                    // Clean up the log line (remove timestamps, hostname, etc.)
+                    let cleaned = line
+                        .trim()
+                        .replace("av1-top ", "")
+                        .replace("av1d[", "[")
+                        .to_string();
+                    
+                    if !cleaned.is_empty() {
+                        self.console_logs.push_front(cleaned);
+                    }
+                }
+                
+                // Limit to 50 lines
+                while self.console_logs.len() > 50 {
+                    self.console_logs.pop_back();
+                }
+            }
+        }
+        
+        // Fallback: try reading from log file if journalctl fails
+        if self.console_logs.is_empty() {
+            if let Ok(log_file) = fs::read_to_string(self.paths_config.logs_dir.join("av1janitor.log")) {
+                let lines: Vec<&str> = log_file.lines().collect();
+                for line in lines.iter().rev().take(50) {
+                    let cleaned = line.trim().to_string();
+                    if !cleaned.is_empty() {
+                        self.console_logs.push_front(cleaned);
+                    }
+                }
+                while self.console_logs.len() > 50 {
+                    self.console_logs.pop_back();
+                }
+            }
+        }
+    }
 }
 
 struct QueueStats {
@@ -319,14 +384,15 @@ fn run_app<B: ratatui::backend::Backend>(
 fn ui(f: &mut Frame, app: &App) {
     let size = f.area();
 
-    // Create main layout: Header, Stats, Jobs, Footer
+    // Create main layout: Header, Stats, Jobs, Console, Footer
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),  // Header
             Constraint::Length(10), // System stats
             Constraint::Length(8),  // Current job details
-            Constraint::Min(10),    // Jobs table
+            Constraint::Min(8),    // Jobs table
+            Constraint::Length(8),  // Console logs
             Constraint::Length(3),  // Footer
         ])
         .split(size);
@@ -343,8 +409,11 @@ fn ui(f: &mut Frame, app: &App) {
     // Jobs table
     draw_jobs_table(f, chunks[3], app);
 
+    // Console logs
+    draw_console_logs(f, chunks[4], app);
+
     // Footer
-    draw_footer(f, chunks[4], app);
+    draw_footer(f, chunks[5], app);
 }
 
 /// Draw header with title and queue summary
@@ -478,7 +547,7 @@ fn draw_gpu_panel(f: &mut Frame, area: Rect, app: &App) {
 fn draw_memory_panel(f: &mut Frame, area: Rect, app: &App) {
     let mem_total = app.sys.total_memory() as f64 / (1024.0 * 1024.0 * 1024.0);
     let mem_used = app.sys.used_memory() as f64 / (1024.0 * 1024.0 * 1024.0);
-    let mem_percent = if mem_total > 0.0 { (mem_used / mem_total * 100.0) } else { 0.0 };
+    let mem_percent = if mem_total > 0.0 { mem_used / mem_total * 100.0 } else { 0.0 };
 
     let swap_total = app.sys.total_swap() as f64 / (1024.0 * 1024.0 * 1024.0);
     let swap_used = app.sys.used_swap() as f64 / (1024.0 * 1024.0 * 1024.0);
@@ -738,6 +807,61 @@ fn draw_jobs_table(f: &mut Frame, area: Rect, app: &App) {
     .block(Block::default().title("Transcode History").borders(Borders::ALL));
 
     f.render_widget(table, area);
+}
+
+/// Draw console logs from daemon
+fn draw_console_logs(f: &mut Frame, area: Rect, app: &App) {
+    let lines: Vec<Line> = if app.console_logs.is_empty() {
+        vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("No logs available", Style::default().fg(Color::Gray)),
+            ]),
+            Line::from(vec![
+                Span::raw("Try: "),
+                Span::styled("sudo journalctl -u av1janitor -f", Style::default().fg(Color::Yellow)),
+            ]),
+        ]
+    } else {
+        // Show last 8 lines (fitting in the 8-line console area)
+        app.console_logs
+            .iter()
+            .rev()
+            .take((area.height.saturating_sub(2)) as usize)
+            .map(|log_line| {
+                // Color code log lines based on content
+                let style = if log_line.contains("ERROR") || log_line.contains("error") || log_line.contains("Failed") {
+                    Style::default().fg(Color::Red)
+                } else if log_line.contains("WARN") || log_line.contains("warn") {
+                    Style::default().fg(Color::Yellow)
+                } else if log_line.contains("INFO") || log_line.contains("info") || log_line.contains("Starting") || log_line.contains("Saving") {
+                    Style::default().fg(Color::Green)
+                } else if log_line.contains("TRANSCODING") || log_line.contains("transcoding") || log_line.contains("Progress") {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                
+                // Truncate long lines to fit in console area
+                let max_width = (area.width.saturating_sub(2)) as usize;
+                let display_line = if log_line.len() > max_width {
+                    format!("{}...", &log_line[..max_width.saturating_sub(3)])
+                } else {
+                    log_line.clone()
+                };
+                
+                Line::from(vec![Span::styled(display_line, style)])
+            })
+            .collect()
+    };
+
+    let paragraph = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .title("Console Logs (Daemon Output)")
+                .borders(Borders::ALL)
+        );
+    f.render_widget(paragraph, area);
 }
 
 /// Draw footer with controls and status

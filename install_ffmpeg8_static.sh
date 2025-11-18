@@ -143,6 +143,29 @@ rm -rf "$TMP_DIR"
 # Verify installation
 echo ""
 echo -e "${YELLOW}Verifying installation...${NC}"
+
+# Update PATH for current session
+export PATH="/usr/local/bin:/usr/bin:$PATH"
+
+# Check if binaries exist
+if [ ! -f "$INSTALL_DIR/ffmpeg" ]; then
+    echo -e "${RED}✗ ffmpeg binary not found at $INSTALL_DIR/ffmpeg${NC}"
+    exit 1
+fi
+
+if [ ! -f "$INSTALL_DIR/ffprobe" ]; then
+    echo -e "${RED}✗ ffprobe binary not found at $INSTALL_DIR/ffprobe${NC}"
+    exit 1
+fi
+
+# Test binaries directly
+if "$INSTALL_DIR/ffmpeg" -version &>/dev/null; then
+    echo -e "${GREEN}✓ FFmpeg binary works${NC}"
+else
+    echo -e "${RED}✗ FFmpeg binary failed to execute${NC}"
+    exit 1
+fi
+
 if check_ffmpeg_version; then
     echo -e "${GREEN}✓ FFmpeg 8.0+ installed successfully!${NC}"
     echo ""

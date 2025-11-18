@@ -333,7 +333,12 @@ func (m Model) renderJobsTable() string {
 		}
 
 		status := lipgloss.NewStyle().Foreground(lipgloss.Color(statusColor)).Render(string(job.Status))
-		filename := filepath.Base(job.FilePath)
+		filename := job.FilePath
+		if filename == "" {
+			filename = "(unknown)"
+		} else {
+			filename = filepath.Base(filename)
+		}
 		if len(filename) > 40 {
 			filename = filename[:37] + "..."
 		}

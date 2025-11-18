@@ -26,7 +26,12 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 INSTALL_DIR="/usr/local/bin"
-STATIC_URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-8.0-amd64-static.tar.xz"
+# Try multiple possible URLs for FFmpeg 8.0 static build
+STATIC_URLS=(
+    "https://johnvansickle.com/ffmpeg/releases/ffmpeg-8.0-amd64-static.tar.xz"
+    "https://johnvansickle.com/ffmpeg/builds/ffmpeg-8.0-amd64-static.tar.xz"
+    "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+)
 TMP_DIR=$(mktemp -d)
 cd "$TMP_DIR"
 

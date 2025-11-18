@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=media
-Group=media
+User=av1janitor
+Group=av1janitor
 WorkingDirectory=/opt/av1janitor
 
 # Path to the daemon binary
@@ -22,7 +22,8 @@ TimeoutStopSec=14400
 
 # Environment variables
 Environment="RUST_LOG=info"
-Environment="HOME=/home/media"
+Environment="HOME=/opt/av1janitor"
+Environment="LIBVA_DRIVER_NAME=iHD"
 
 # Resource limits (optional)
 LimitNOFILE=4096
@@ -33,7 +34,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/media /home/media/.local/share/av1janitor
+ReadWritePaths=/main-library-2 /var/lib/av1janitor /opt/av1janitor
 
 # GPU access (required for QSV)
 SupplementaryGroups=render video

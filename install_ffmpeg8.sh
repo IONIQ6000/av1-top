@@ -45,8 +45,33 @@ check_ffmpeg_version() {
 if check_ffmpeg_version; then
     echo -e "${GREEN}✓ FFmpeg 8.0+ already installed${NC}"
     ffmpeg -version | head -1
-    exit 0
+    
+    # Check if it has QSV support
+    if ffmpeg -encoders 2>&1 | grep -q av1_qsv; then
+        echo -e "${GREEN}✓ av1_qsv encoder available${NC}"
+        exit 0
+    else
+        echo -e "${YELLOW}⚠ FFmpeg 8.0+ installed but av1_qsv encoder not found${NC}"
+        echo -e "${YELLOW}Removing old installation to rebuild with QSV support...${NC}"
+    fi
 fi
+
+# Remove old FFmpeg installations
+echo -e "${YELLOW}[0/4] Removing old FFmpeg installations...${NC}"
+
+# Remove from /usr/local/bin
+[ -f /usr/local/bin/ffmpeg ] && rm -f /usr/local/bin/ffmpeg && echo "Removed /usr/local/bin/ffmpeg"
+[ -f /usr/local/bin/ffprobe ] && rm -f /usr/local/bin/ffprobe && echo "Removed /usr/local/bin/ffprobe"
+
+# Remove symlinks from /usr/bin
+[ -L /usr/bin/ffmpeg ] && rm -f /usr/bin/ffmpeg && echo "Removed /usr/bin/ffmpeg symlink"
+[ -L /usr/bin/ffprobe ] && rm -f /usr/bin/ffprobe && echo "Removed /usr/bin/ffprobe symlink"
+
+# Remove static build directory if it exists
+[ -d /usr/local/ffmpeg-git-*-static ] && rm -rf /usr/local/ffmpeg-git-*-static && echo "Removed old static build directory"
+
+echo -e "${GREEN}✓ Old installations removed${NC}"
+echo ""
 
 echo -e "${YELLOW}[1/4] Installing required tools (wget, xz-utils)...${NC}"
 apt-get update -qq

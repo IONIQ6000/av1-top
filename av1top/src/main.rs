@@ -124,14 +124,12 @@ impl App {
         // Try to load real jobs from disk
         let (jobs, job_load_error) = match core::load_all_jobs(&paths_config.jobs_dir) {
             Ok(loaded_jobs) => {
-                if loaded_jobs.is_empty() {
-                    (create_dummy_jobs(), Some("No job files found, showing demo data".to_string()))
-                } else {
-                    (loaded_jobs, None)
-                }
+                // No fake data - show empty if no jobs
+                (loaded_jobs, None)
             }
             Err(e) => {
-                (create_dummy_jobs(), Some(format!("Error loading jobs: {}", e)))
+                // Show error but no fake data
+                (Vec::new(), Some(format!("Error loading jobs: {}", e)))
             }
         };
 
@@ -173,18 +171,12 @@ impl App {
     fn reload_jobs(&mut self) {
         match core::load_all_jobs(&self.paths_config.jobs_dir) {
             Ok(loaded_jobs) => {
-                if loaded_jobs.is_empty() {
-                    if self.jobs.is_empty() {
-                        self.jobs = create_dummy_jobs();
-                        self.job_load_error = Some("No job files found, showing demo data".to_string());
-                    }
-                } else {
-                    self.jobs = loaded_jobs;
-                    self.job_load_error = None;
-                }
+                // Always use real jobs, even if empty
+                self.jobs = loaded_jobs;
+                self.job_load_error = None;
             }
             Err(e) => {
-                self.job_load_error = Some(format!("Error reloading jobs: {}", e));
+                self.job_load_error = Some(format!("Error loading jobs: {}", e));
             }
         }
     }
@@ -786,39 +778,4 @@ fn format_bytes(bytes: u64) -> String {
 }
 
 /// Create dummy jobs for display
-fn create_dummy_jobs() -> Vec<TranscodeJob> {
-    use core::JobReason;
-    use std::path::PathBuf;
-
-    let mut jobs = vec![];
-
-    let mut job1 = TranscodeJob::new(PathBuf::from("/media/movies/example_movie.mkv"));
-    job1.status = JobStatus::Success;
-    job1.original_bytes = Some(5_000_000_000);
-    job1.new_bytes = Some(3_500_000_000);
-    jobs.push(job1);
-
-    let mut job2 = TranscodeJob::new(PathBuf::from("/media/tv/show_s01e02.mkv"));
-    job2.status = JobStatus::Running;
-    job2.started_at = Some(chrono::Utc::now() - chrono::Duration::minutes(15));
-    job2.original_bytes = Some(3_200_000_000);
-    job2.new_bytes = Some(2_400_000_000);
-    jobs.push(job2);
-
-    let job3 = TranscodeJob::new(PathBuf::from("/media/movies/another_movie.mp4"));
-    jobs.push(job3);
-
-    let mut job4 = TranscodeJob::new(PathBuf::from("/media/movies/small_file.avi"));
-    job4.status = JobStatus::Skipped;
-    job4.reason = Some(JobReason::new("File too small"));
-    job4.original_bytes = Some(500_000_000);
-    jobs.push(job4);
-
-    let mut job5 = TranscodeJob::new(PathBuf::from("/media/tv/corrupt_episode.mkv"));
-    job5.status = JobStatus::Failed;
-    job5.reason = Some(JobReason::new("FFmpeg error"));
-    job5.original_bytes = Some(2_800_000_000);
-    jobs.push(job5);
-
-    jobs
-}
+// Removed: create_dummy_jobs() - no more fake data!

@@ -535,66 +535,98 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 			}
 		}
 		
-		// Method 2: Try reading from device path (follow symlink)
-		// card0 -> device -> ../../../0000:c6:00.0
-		devicePath := "/sys/class/drm/card0/device"
-		if link, err := os.Readlink(devicePath); err == nil {
-			// Resolve relative path
-			absDevicePath := filepath.Join("/sys/class/drm/card0", link)
-			absDevicePath = filepath.Clean(absDevicePath)
-			
-			// Try frequency files in device path
-			freqPaths := []string{
-				filepath.Join(absDevicePath, "gt_min_freq_mhz"),
-				filepath.Join(absDevicePath, "gt_max_freq_mhz"),
-				filepath.Join(absDevicePath, "gt_RP0_freq_mhz"),
-				filepath.Join(absDevicePath, "gt_RPn_freq_mhz"),
-				filepath.Join(absDevicePath, "gt", "min_freq_mhz"),
-				filepath.Join(absDevicePath, "gt", "max_freq_mhz"),
-			}
-			
-			var minFreq, maxFreq float64
-			for _, freqFile := range freqPaths {
-				if data, err := os.ReadFile(freqFile); err == nil {
-					if freq, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil && freq > 0 {
-						if strings.Contains(freqFile, "min") || strings.Contains(freqFile, "RPn") {
-							if minFreq == 0 || freq < minFreq {
-								minFreq = freq
-							}
-						} else if strings.Contains(freqFile, "max") || strings.Contains(freqFile, "RP0") {
-							if freq > maxFreq {
-								maxFreq = freq
-							}
-						}
-					}
-				}
-			}
-			
-			// Try to find current frequency
-			if maxFreq > 0 && minFreq > 0 {
-				curFreqPaths := []string{
-					filepath.Join(absDevicePath, "gt_cur_freq_mhz"),
-					filepath.Join(absDevicePath, "gt", "cur_freq_mhz"),
-					filepath.Join(absDevicePath, "gt", "act_freq_mhz"),
-				}
-				curFreq := minFreq // Default to min
-				for _, freqFile := range curFreqPaths {
-					if data, err := os.ReadFile(freqFile); err == nil {
-						if freq, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil && freq > 0 {
-							curFreq = freq
-							break
-						}
-					}
+		// Method 2: Find Intel GPU card (i915 driver) and read frequency files
+		// card0 might be ASpeed BMC, so we need to find the actual Intel GPU
+		drmDir := "/sys/class/drm"
+		entries, err := os.ReadDir(drmDir)
+		if err == nil {
+			for _, entry := range entries {
+				if !strings.HasPrefix(entry.Name(), "card") {
+					continue
 				}
 				
-				// Calculate usage as percentage of frequency range
-				if maxFreq > minFreq {
-					usage := ((curFreq - minFreq) / (maxFreq - minFreq)) * 100.0
-					if usage > gpuUsage {
-						gpuUsage = usage
+				// Check if this card uses i915 driver (Intel GPU)
+				driverLink := filepath.Join(drmDir, entry.Name(), "device", "driver")
+				if link, err := os.Readlink(driverLink); err == nil {
+					driverName := filepath.Base(link)
+					if driverName != "i915" {
+						continue // Skip non-Intel GPUs
 					}
-					if gpuUsage > 100 {
-						gpuUsage = 100
+					
+					// Found Intel GPU, now find frequency files
+					devicePath := filepath.Join(drmDir, entry.Name(), "device")
+					if link, err := os.Readlink(devicePath); err == nil {
+						// Resolve relative path
+						absDevicePath := filepath.Join(drmDir, entry.Name(), link)
+						absDevicePath = filepath.Clean(absDevicePath)
+						
+						// Try frequency files in various locations
+						freqPaths := []string{
+							// Direct in device path
+							filepath.Join(absDevicePath, "gt_min_freq_mhz"),
+							filepath.Join(absDevicePath, "gt_max_freq_mhz"),
+							filepath.Join(absDevicePath, "gt_RP0_freq_mhz"),
+							filepath.Join(absDevicePath, "gt_RPn_freq_mhz"),
+							// In gt subdirectory
+							filepath.Join(absDevicePath, "gt", "min_freq_mhz"),
+							filepath.Join(absDevicePath, "gt", "max_freq_mhz"),
+							// In card's gt directory
+							filepath.Join(drmDir, entry.Name(), "gt", "min_freq_mhz"),
+							filepath.Join(drmDir, entry.Name(), "gt", "max_freq_mhz"),
+							filepath.Join(drmDir, entry.Name(), "gt_min_freq_mhz"),
+							filepath.Join(drmDir, entry.Name(), "gt_max_freq_mhz"),
+						}
+						
+						var minFreq, maxFreq float64
+						for _, freqFile := range freqPaths {
+							if data, err := os.ReadFile(freqFile); err == nil {
+								if freq, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil && freq > 0 {
+									if strings.Contains(freqFile, "min") || strings.Contains(freqFile, "RPn") {
+										if minFreq == 0 || freq < minFreq {
+											minFreq = freq
+										}
+									} else if strings.Contains(freqFile, "max") || strings.Contains(freqFile, "RP0") {
+										if freq > maxFreq {
+											maxFreq = freq
+										}
+									}
+								}
+							}
+						}
+						
+						// Try to find current frequency
+						if maxFreq > 0 && minFreq > 0 {
+							curFreqPaths := []string{
+								filepath.Join(absDevicePath, "gt_cur_freq_mhz"),
+								filepath.Join(absDevicePath, "gt", "cur_freq_mhz"),
+								filepath.Join(absDevicePath, "gt", "act_freq_mhz"),
+								filepath.Join(drmDir, entry.Name(), "gt", "cur_freq_mhz"),
+								filepath.Join(drmDir, entry.Name(), "gt_cur_freq_mhz"),
+							}
+							curFreq := minFreq // Default to min
+							for _, freqFile := range curFreqPaths {
+								if data, err := os.ReadFile(freqFile); err == nil {
+									if freq, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil && freq > 0 {
+										curFreq = freq
+										break
+									}
+								}
+							}
+							
+							// Calculate usage as percentage of frequency range
+							if maxFreq > minFreq {
+								usage := ((curFreq - minFreq) / (maxFreq - minFreq)) * 100.0
+								if usage > gpuUsage {
+									gpuUsage = usage
+								}
+								if gpuUsage > 100 {
+									gpuUsage = 100
+								}
+							}
+						}
+						
+						// Found Intel GPU, no need to check other cards
+						break
 					}
 				}
 			}

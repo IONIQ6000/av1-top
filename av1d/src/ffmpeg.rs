@@ -49,8 +49,28 @@ pub fn build_transcode_command(
 
     // Hardware acceleration setup
     cmd.arg("-hwaccel").arg("none"); // Don't use hwaccel for input
-    cmd.arg("-init_hw_device").arg("qsv=hw"); // Initialize QSV device
-    cmd.arg("-filter_hw_device").arg("hw"); // Use QSV for filters
+    
+    // Initialize VAAPI device with explicit DRM render node path
+    // Find the first renderD* device
+    if let Ok(entries) = std::fs::read_dir("/dev/dri") {
+        if let Some(render_device) = entries
+            .filter_map(|e| e.ok())
+            .find(|e| e.file_name().to_string_lossy().starts_with("renderD"))
+            .map(|e| format!("/dev/dri/{}", e.file_name().to_string_lossy()))
+        {
+            // Use VAAPI with explicit device path
+            cmd.arg("-init_hw_device").arg(format!("vaapi=va:{}", render_device));
+            cmd.arg("-filter_hw_device").arg("va");
+        } else {
+            // Fallback to QSV if no render device found
+            cmd.arg("-init_hw_device").arg("qsv=hw");
+            cmd.arg("-filter_hw_device").arg("hw");
+        }
+    } else {
+        // Fallback to QSV if /dev/dri doesn't exist
+        cmd.arg("-init_hw_device").arg("qsv=hw");
+        cmd.arg("-filter_hw_device").arg("hw");
+    }
 
     // Input analysis parameters
     cmd.arg("-analyzeduration").arg("50M");
@@ -106,23 +126,55 @@ pub fn build_transcode_command(
 
     // === Video filter chain ===
     
+    // Determine if we're using VAAPI or QSV based on hardware device initialization
+    let use_vaapi = std::fs::read_dir("/dev/dri")
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .any(|e| e.file_name().to_string_lossy().starts_with("renderD"))
+        })
+        .unwrap_or(false);
+    
     // Build the video filter:
     // 1. Pad to even dimensions (required for encoding)
     // 2. Set SAR to 1:1
-    // 3. Convert to appropriate pixel format for QSV
-    // 4. Upload to QSV hardware
-    let filter = format!(
-        "pad=ceil(iw/2)*2:ceil(ih/2)*2,setsar=1,format={},hwupload=extra_hw_frames=64",
-        surface
-    );
+    // 3. Convert to appropriate pixel format
+    // 4. Upload to hardware
+    let filter = if use_vaapi {
+        // VAAPI filter: pad, set SAR, convert to NV12, upload to VAAPI
+        format!(
+            "pad=ceil(iw/2)*2:ceil(ih/2)*2,setsar=1,format=nv12,hwupload"
+        )
+    } else {
+        // QSV filter: pad, set SAR, convert to surface format, upload to QSV
+        format!(
+            "pad=ceil(iw/2)*2:ceil(ih/2)*2,setsar=1,format={},hwupload=extra_hw_frames=64",
+            surface
+        )
+    };
     cmd.arg("-vf:v:0").arg(filter);
 
     // === Video encoding parameters ===
     
-    cmd.arg("-c:v:0").arg("av1_qsv"); // Use QSV AV1 encoder
-    cmd.arg("-global_quality:v:0").arg(quality.to_string()); // Quality parameter
-    cmd.arg("-preset:v:0").arg("medium"); // Encoding preset
-    cmd.arg("-look_ahead").arg("1"); // Enable lookahead
+    if use_vaapi {
+        // Use VAAPI AV1 encoder
+        cmd.arg("-c:v:0").arg("av1_vaapi");
+        // VAAPI uses compression_level (0-8, lower = better quality)
+        // Map QSV quality (23-25) to VAAPI compression_level (roughly: 25->6, 24->5, 23->4)
+        let compression_level = match quality {
+            23 => "4",  // Best quality
+            24 => "5",  // High quality
+            25 => "6",  // Good quality
+            _ => "5",
+        };
+        cmd.arg("-compression_level:v:0").arg(compression_level);
+    } else {
+        // Use QSV AV1 encoder (fallback)
+        cmd.arg("-c:v:0").arg("av1_qsv");
+        cmd.arg("-global_quality:v:0").arg(quality.to_string()); // Quality parameter
+        cmd.arg("-preset:v:0").arg("medium"); // Encoding preset
+        cmd.arg("-look_ahead").arg("1"); // Enable lookahead
+    }
 
     // === Audio and subtitle encoding ===
     

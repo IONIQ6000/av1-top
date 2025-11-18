@@ -782,5 +782,4 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-/// Create dummy jobs for display
 // Removed: create_dummy_jobs() - no more fake data!

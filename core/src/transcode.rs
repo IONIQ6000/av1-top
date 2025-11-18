@@ -101,18 +101,23 @@ pub fn build_ffmpeg_command(_ffmpeg_path: &Path, params: &TranscodeParams) -> Ve
     args.push("-hwaccel".to_string());
     args.push("none".to_string()); // Don't use hwaccel for input
     
-    // Try to find the DRM render device explicitly (for LXC containers)
-    // FFmpeg will try renderD128, renderD129, etc. if not specified
-    // In containers, we may need to specify it explicitly
+    // Initialize QSV hardware device
+    // For LXC containers, we need to use VAAPI as the child device since
+    // direct DRM access may not work properly with oneVPL
+    // Try VAAPI first, then fall back to direct QSV
     let qsv_device = if let Ok(entries) = std::fs::read_dir("/dev/dri") {
-        // Find first renderD* device
-        entries
+        // Check if we have renderD* devices
+        let has_render = entries
             .filter_map(|e| e.ok())
-            .find(|e| {
-                e.file_name().to_string_lossy().starts_with("renderD")
-            })
-            .map(|e| format!("qsv=hw:{}", e.path().display()))
-            .unwrap_or_else(|| "qsv=hw".to_string())
+            .any(|e| e.file_name().to_string_lossy().starts_with("renderD"));
+        
+        if has_render {
+            // Use VAAPI as child device - this works better in containers
+            // VAAPI will handle DRM access, and QSV will use VAAPI
+            "qsv=hw,child_device_type=vaapi".to_string()
+        } else {
+            "qsv=hw".to_string()
+        }
     } else {
         "qsv=hw".to_string()
     };

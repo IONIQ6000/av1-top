@@ -17,6 +17,10 @@ const (
 	StatusSkipped  JobStatus = "skipped"
 )
 
+func (s JobStatus) String() string {
+	return string(s)
+}
+
 type Job struct {
 	ID        string    `json:"id"`
 	FilePath  string    `json:"file_path"`

@@ -510,9 +510,27 @@ async fn process_file(
     }
     
     if !result.success {
-        error!("Transcode failed");
+        error!("Transcode failed for: {}", file_path.display());
+        error!("  Exit code: {:?}", result.exit_code);
+        if !result.stderr.is_empty() {
+            error!("  FFmpeg error output:");
+            // Show last 15 lines of stderr (most relevant)
+            let lines: Vec<&str> = result.stderr.lines().collect();
+            let start = lines.len().saturating_sub(15);
+            for line in lines.iter().skip(start) {
+                error!("    {}", line);
+            }
+        }
         job.status = JobStatus::Failed;
-        job.reason = Some(JobReason::new(format!("FFmpeg failed: {:?}", result.exit_code)));
+        // Extract key error message from stderr
+        let error_msg = result.stderr
+            .lines()
+            .rev()
+            .find(|l| l.contains("error") || l.contains("Error") || l.contains("failed") || l.contains("Error"))
+            .unwrap_or("FFmpeg failed")
+            .to_string();
+        let reason = format!("FFmpeg failed (exit {:?}): {}", result.exit_code, error_msg);
+        job.reason = Some(JobReason::new(reason));
         save_job_state(&job, &paths_config.jobs_dir)?;
         cleanup_failed_transcode(&output_path)?;
         return Err(anyhow::anyhow!("FFmpeg failed"));

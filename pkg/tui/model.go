@@ -637,57 +637,105 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 							}
 						}
 						
-						// Read GPU memory from sysfs
+						// Read GPU memory from sysfs (discrete Intel GPU)
 						if gpuMemoryMB == 0 {
-							// Try multiple memory file locations
-							memPaths := []string{
-								// Card-level memory files
-								filepath.Join(drmDir, entry.Name(), "mem_info_vram_total"),
-								filepath.Join(drmDir, entry.Name(), "gt", "gt0", "meminfo"),
-								filepath.Join(drmDir, entry.Name(), "gt", "gt0", "memory"),
-								// Device path memory files
-								filepath.Join(absDevicePath, "mem_info_vram_total"),
-								filepath.Join(absDevicePath, "drm", entry.Name(), "gt", "gt0", "meminfo"),
-							}
+							// For discrete Intel GPUs, check memory regions
+							// Memory info might be in gt/gt0/memory_regions or similar
+							gt0Path := filepath.Join(drmDir, entry.Name(), "gt", "gt0")
 							
-							for _, memFile := range memPaths {
-								if data, err := os.ReadFile(memFile); err == nil {
-									content := strings.TrimSpace(string(data))
-									// Try parsing as bytes (convert to MB)
-									if bytes, err := strconv.ParseUint(content, 10, 64); err == nil && bytes > 0 {
-										gpuMemoryMB = bytes / (1024 * 1024) // Convert bytes to MB
-										break
-									}
-									// Try parsing as MB directly
-									if strings.HasSuffix(content, "MB") || strings.HasSuffix(content, "MiB") {
-										numStr := strings.TrimSuffix(strings.TrimSuffix(content, "MB"), "MiB")
-										if mem, err := strconv.ParseUint(strings.TrimSpace(numStr), 10, 64); err == nil && mem > 0 {
-											gpuMemoryMB = mem
-											break
+							// Check for memory region directories
+							gt0Entries, err := os.ReadDir(gt0Path)
+							if err == nil {
+								for _, gtEntry := range gt0Entries {
+									if strings.HasPrefix(gtEntry.Name(), "memory_region") || strings.HasPrefix(gtEntry.Name(), "region") {
+										regionPath := filepath.Join(gt0Path, gtEntry.Name())
+										// Check for size file in region
+										sizeFile := filepath.Join(regionPath, "size")
+										if data, err := os.ReadFile(sizeFile); err == nil {
+											if bytes, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64); err == nil && bytes > 0 {
+												gpuMemoryMB += bytes / (1024 * 1024) // Convert bytes to MB
+											}
+										}
+										// Also check for total_size or similar
+										totalSizeFile := filepath.Join(regionPath, "total_size")
+										if data, err := os.ReadFile(totalSizeFile); err == nil {
+											if bytes, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64); err == nil && bytes > 0 {
+												gpuMemoryMB += bytes / (1024 * 1024)
+											}
 										}
 									}
 								}
 							}
 							
-							// If still 0, try reading from meminfo format (if available)
+							// Try card-level memory files
 							if gpuMemoryMB == 0 {
-								meminfoPath := filepath.Join(drmDir, entry.Name(), "gt", "gt0", "meminfo")
-								if data, err := os.ReadFile(meminfoPath); err == nil {
-									// Parse meminfo format: "Total: 8192 MB" or similar
-									lines := strings.Split(string(data), "\n")
-									for _, line := range lines {
-										if strings.Contains(strings.ToLower(line), "total") {
-											parts := strings.Fields(line)
-											for i, part := range parts {
-												if (part == "MB" || part == "MiB") && i > 0 {
-													if mem, err := strconv.ParseUint(parts[i-1], 10, 64); err == nil && mem > 0 {
-														gpuMemoryMB = mem
+								memPaths := []string{
+									filepath.Join(drmDir, entry.Name(), "mem_info_vram_total"),
+									filepath.Join(drmDir, entry.Name(), "gt", "gt0", "meminfo"),
+									filepath.Join(drmDir, entry.Name(), "gt", "gt0", "memory"),
+									filepath.Join(absDevicePath, "mem_info_vram_total"),
+									filepath.Join(absDevicePath, "drm", entry.Name(), "gt", "gt0", "meminfo"),
+								}
+								
+								for _, memFile := range memPaths {
+									if data, err := os.ReadFile(memFile); err == nil {
+										content := strings.TrimSpace(string(data))
+										// Try parsing as bytes (convert to MB)
+										if bytes, err := strconv.ParseUint(content, 10, 64); err == nil && bytes > 0 {
+											gpuMemoryMB = bytes / (1024 * 1024)
+											break
+										}
+										// Try parsing as MB directly
+										if strings.HasSuffix(content, "MB") || strings.HasSuffix(content, "MiB") {
+											numStr := strings.TrimSuffix(strings.TrimSuffix(content, "MB"), "MiB")
+											if mem, err := strconv.ParseUint(strings.TrimSpace(numStr), 10, 64); err == nil && mem > 0 {
+												gpuMemoryMB = mem
+												break
+											}
+										}
+									}
+								}
+							}
+							
+							// Try reading from lspci output as fallback
+							if gpuMemoryMB == 0 {
+								cmd := exec.Command("lspci", "-v", "-s", "")
+								// Find GPU PCI device
+								lspciCmd := exec.Command("sh", "-c", "lspci | grep -i 'vga\\|display\\|3d' | grep -i intel | head -1 | cut -d' ' -f1")
+								if pciAddr, err := lspciCmd.Output(); err == nil {
+									pciAddrStr := strings.TrimSpace(string(pciAddr))
+									if pciAddrStr != "" {
+										cmd = exec.Command("lspci", "-v", "-s", pciAddrStr)
+										output, err := cmd.Output()
+										if err == nil {
+											lines := strings.Split(string(output), "\n")
+											for _, line := range lines {
+												if strings.Contains(strings.ToLower(line), "memory") && strings.Contains(line, "MiB") {
+													// Parse "Memory at ... [size=8G]" or "Memory: ... [size=8192M]"
+													parts := strings.Fields(line)
+													for _, part := range parts {
+														if strings.Contains(part, "size=") {
+															sizeStr := strings.TrimPrefix(part, "size=")
+															// Remove trailing ] if present
+															sizeStr = strings.TrimSuffix(sizeStr, "]")
+															// Check if it's in GB
+															if strings.HasSuffix(sizeStr, "G") {
+																if gb, err := strconv.ParseUint(strings.TrimSuffix(sizeStr, "G"), 10, 64); err == nil {
+																	gpuMemoryMB = gb * 1024
+																	break
+																}
+															} else if strings.HasSuffix(sizeStr, "M") {
+																if mb, err := strconv.ParseUint(strings.TrimSuffix(sizeStr, "M"), 10, 64); err == nil {
+																	gpuMemoryMB = mb
+																	break
+																}
+															}
+														}
+													}
+													if gpuMemoryMB > 0 {
 														break
 													}
 												}
-											}
-											if gpuMemoryMB > 0 {
-												break
 											}
 										}
 									}

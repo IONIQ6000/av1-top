@@ -9,7 +9,8 @@ Group=media
 WorkingDirectory=/opt/av1janitor
 
 # Path to the daemon binary
-ExecStart=/usr/bin/av1d --concurrent 2
+# Use config file at /etc/av1janitor/config.toml
+ExecStart=/usr/bin/av1d --config /etc/av1janitor/config.toml --concurrent 2
 
 # Restart policy
 Restart=on-failure

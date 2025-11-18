@@ -51,10 +51,9 @@ func BuildFFmpegCommand(ffmpegPath string, meta *metadata.FileMetadata, outputPa
 	// Initialize VAAPI device
 	renderDevice := findRenderDevice()
 	if renderDevice != "" {
-		// Use -vaapi_device flag instead of device path in init_hw_device
-		// Format: vaapi=name (auto-detect) + separate -vaapi_device flag
-		args = append(args, "-init_hw_device", "vaapi=va")
+		// VAAPI device initialization: -vaapi_device must come BEFORE -init_hw_device
 		args = append(args, "-vaapi_device", renderDevice)
+		args = append(args, "-init_hw_device", "vaapi=va")
 		args = append(args, "-filter_hw_device", "va")
 	} else {
 		// Fallback to QSV

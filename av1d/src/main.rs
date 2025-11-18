@@ -707,5 +707,3 @@ fn print_configuration(config: &TranscodeConfig, paths_config: &PathsConfig, dry
         info!("    - {}", dir.display());
     }
 }
-
-}

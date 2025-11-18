@@ -213,18 +213,9 @@ func (m Model) renderSystemStats() string {
 	cpuBar := m.renderBar("CPU", m.cpuUsage, 80.0)
 	cpuInfo := fmt.Sprintf("Usage: %.1f%%\nCores: %d", m.cpuUsage, getCPUCores())
 
-		// GPU
-		gpuBar := m.renderBar("GPU (Intel QSV)", m.gpuUsage, 80.0)
-		var gpuInfo string
-		if m.gpuMemoryMB > 0 {
-			if m.gpuMemoryUsedMB > 0 {
-				gpuInfo = fmt.Sprintf("Usage: %.1f%%\nVRAM: %d / %d MB\nEncoder: Active", m.gpuUsage, m.gpuMemoryUsedMB, m.gpuMemoryMB)
-			} else {
-				gpuInfo = fmt.Sprintf("Usage: %.1f%%\nVRAM: %d MB (total)\nEncoder: Active", m.gpuUsage, m.gpuMemoryMB)
-			}
-		} else {
-			gpuInfo = fmt.Sprintf("Usage: %.1f%%\nVRAM: N/A\nEncoder: Active", m.gpuUsage)
-		}
+	// GPU
+	gpuBar := m.renderBar("GPU (Intel QSV)", m.gpuUsage, 80.0)
+	gpuInfo := fmt.Sprintf("Usage: %.1f%%\nEncoder: Active", m.gpuUsage)
 
 	// Memory
 	memBar := m.renderBar("Memory", m.memUsage, 90.0)

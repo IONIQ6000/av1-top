@@ -100,8 +100,25 @@ pub fn build_ffmpeg_command(_ffmpeg_path: &Path, params: &TranscodeParams) -> Ve
     // Hardware acceleration setup
     args.push("-hwaccel".to_string());
     args.push("none".to_string()); // Don't use hwaccel for input
+    
+    // Try to find the DRM render device explicitly (for LXC containers)
+    // FFmpeg will try renderD128, renderD129, etc. if not specified
+    // In containers, we may need to specify it explicitly
+    let qsv_device = if let Ok(entries) = std::fs::read_dir("/dev/dri") {
+        // Find first renderD* device
+        entries
+            .filter_map(|e| e.ok())
+            .find(|e| {
+                e.file_name().to_string_lossy().starts_with("renderD")
+            })
+            .map(|e| format!("qsv=hw:{}", e.path().display()))
+            .unwrap_or_else(|| "qsv=hw".to_string())
+    } else {
+        "qsv=hw".to_string()
+    };
+    
     args.push("-init_hw_device".to_string());
-    args.push("qsv=hw".to_string());
+    args.push(qsv_device);
     args.push("-filter_hw_device".to_string());
     args.push("hw".to_string());
     

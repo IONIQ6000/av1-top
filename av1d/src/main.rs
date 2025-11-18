@@ -71,11 +71,24 @@ async fn main() -> Result<()> {
     
     // Load configuration (from file or defaults)
     let config_path = args.get_config_path();
+    info!("Looking for config file at: {}", config_path.display());
     let mut config = if config_path.exists() {
-        info!("Loading configuration from: {}", config_path.display());
-        TranscodeConfig::load_from_file(&config_path)?
+        info!("✓ Loading configuration from: {}", config_path.display());
+        match TranscodeConfig::load_from_file(&config_path) {
+            Ok(cfg) => {
+                info!("✓ Config loaded successfully");
+                info!("  Watched directories: {:?}", cfg.watched_directories);
+                cfg
+            }
+            Err(e) => {
+                warn!("Failed to load config file: {}", e);
+                warn!("Falling back to defaults");
+                TranscodeConfig::default()
+            }
+        }
     } else {
-        info!("No config file found, using defaults");
+        warn!("✗ Config file not found at: {}", config_path.display());
+        warn!("Using default configuration (watched_directories will be empty)");
         TranscodeConfig::default()
     };
     

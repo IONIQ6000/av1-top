@@ -105,16 +105,16 @@ pub fn build_ffmpeg_command(_ffmpeg_path: &Path, params: &TranscodeParams) -> Ve
     // Use VAAPI directly since QSV/oneVPL has issues in containers
     // VAAPI supports AV1 encoding and works reliably
     if let Ok(entries) = std::fs::read_dir("/dev/dri") {
-        // Check if we have renderD* devices
-        let has_render = entries
+        // Find the first renderD* device
+        let render_device = entries
             .filter_map(|e| e.ok())
-            .any(|e| e.file_name().to_string_lossy().starts_with("renderD"));
+            .find(|e| e.file_name().to_string_lossy().starts_with("renderD"))
+            .map(|e| format!("/dev/dri/{}", e.file_name().to_string_lossy()));
         
-        if has_render {
-            // Initialize VAAPI device (named "va")
-            // Use auto-detection - VAAPI will find the device automatically
+        if let Some(device_path) = render_device {
+            // Initialize VAAPI device with explicit DRM render node path
             args.push("-init_hw_device".to_string());
-            args.push("vaapi=va".to_string());
+            args.push(format!("vaapi=va:{}", device_path));
             
             args.push("-filter_hw_device".to_string());
             args.push("va".to_string());

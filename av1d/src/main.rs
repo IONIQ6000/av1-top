@@ -570,7 +570,8 @@ fn scan_directories(config: &TranscodeConfig) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// Recursively scan directory
+/// Recursively scan directory with conditional depth
+/// Only recurses into subdirectories if they contain media files at their top level
 fn scan_directory_recursive(
     dir: &Path,
     extensions: &[String],
@@ -579,20 +580,33 @@ fn scan_directory_recursive(
     let entries = fs::read_dir(dir)
         .with_context(|| format!("Failed to read directory: {}", dir.display()))?;
     
+    let mut subdirs = Vec::new();
+    let mut has_media_files = false;
+    
+    // First pass: collect files and subdirectories
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
         
         if path.is_dir() {
-            scan_directory_recursive(&path, extensions, files)?;
+            subdirs.push(path);
         } else if path.is_file() {
             if let Some(ext) = path.extension() {
                 if let Some(ext_str) = ext.to_str() {
                     if extensions.contains(&ext_str.to_lowercase()) {
                         files.push(path);
+                        has_media_files = true;
                     }
                 }
             }
+        }
+    }
+    
+    // Second pass: only recurse into subdirectories if current directory has media files
+    // This prevents deep scanning of directories that don't contain media
+    if has_media_files {
+        for subdir in subdirs {
+            scan_directory_recursive(&subdir, extensions, files)?;
         }
     }
     

@@ -48,10 +48,19 @@ cp config.example.toml "debian-package/$DEB_NAME/etc/av1janitor/config.toml.exam
 # Copy systemd service
 cp av1janitor.service "debian-package/$DEB_NAME/etc/systemd/system/"
 
-# Copy documentation
-cp README.md "debian-package/$DEB_NAME/usr/share/doc/av1janitor/"
-cp FFMPEG_SETUP.md "debian-package/$DEB_NAME/usr/share/doc/av1janitor/" 2>/dev/null || true
-cp DEPLOYMENT.md "debian-package/$DEB_NAME/usr/share/doc/av1janitor/" 2>/dev/null || true
+# Copy documentation (only if files exist)
+if [ -f README.md ]; then
+    cp README.md "debian-package/$DEB_NAME/usr/share/doc/av1janitor/"
+fi
+if [ -f FFMPEG_SETUP.md ]; then
+    cp FFMPEG_SETUP.md "debian-package/$DEB_NAME/usr/share/doc/av1janitor/"
+fi
+if [ -f DEPLOYMENT.md ]; then
+    cp DEPLOYMENT.md "debian-package/$DEB_NAME/usr/share/doc/av1janitor/"
+fi
+
+# Ensure directory exists even if no docs (dpkg requires it)
+touch "debian-package/$DEB_NAME/usr/share/doc/av1janitor/.keep" 2>/dev/null || true
 
 # Create control file
 echo "[4/5] Creating control file..."
@@ -81,6 +90,17 @@ Description: Automated AV1 transcoding with Intel QSV
 Homepage: https://github.com/example/av1janitor
 EOF
 
+# Create preinst script (runs before package files are extracted)
+cat > "debian-package/$DEB_NAME/DEBIAN/preinst" << 'EOF'
+#!/bin/bash
+set -e
+
+# Ensure doc directory exists before dpkg extracts files
+mkdir -p /usr/share/doc/av1janitor
+
+exit 0
+EOF
+
 # Create postinst script
 cat > "debian-package/$DEB_NAME/DEBIAN/postinst" << 'EOF'
 #!/bin/bash
@@ -98,6 +118,9 @@ usermod -a -G render,video av1janitor 2>/dev/null || true
 mkdir -p /opt/av1janitor
 mkdir -p /var/log/av1janitor
 mkdir -p /var/lib/av1janitor/jobs
+
+# Ensure doc directory exists (dpkg may not create it automatically)
+mkdir -p /usr/share/doc/av1janitor
 
 # Set permissions
 chown -R av1janitor:av1janitor /opt/av1janitor
@@ -156,6 +179,7 @@ esac
 exit 0
 EOF
 
+chmod 755 "debian-package/$DEB_NAME/DEBIAN/preinst"
 chmod 755 "debian-package/$DEB_NAME/DEBIAN/postinst"
 chmod 755 "debian-package/$DEB_NAME/DEBIAN/postrm"
 

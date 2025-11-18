@@ -697,43 +697,92 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 								}
 							}
 							
-							// Try reading from lspci output as fallback
+							// Try reading from PCI sysfs (no lspci needed)
 							if gpuMemoryMB == 0 {
-								cmd := exec.Command("lspci", "-v", "-s", "")
-								// Find GPU PCI device
-								lspciCmd := exec.Command("sh", "-c", "lspci | grep -i 'vga\\|display\\|3d' | grep -i intel | head -1 | cut -d' ' -f1")
-								if pciAddr, err := lspciCmd.Output(); err == nil {
-									pciAddrStr := strings.TrimSpace(string(pciAddr))
-									if pciAddrStr != "" {
-										cmd = exec.Command("lspci", "-v", "-s", pciAddrStr)
-										output, err := cmd.Output()
-										if err == nil {
-											lines := strings.Split(string(output), "\n")
-											for _, line := range lines {
-												if strings.Contains(strings.ToLower(line), "memory") && strings.Contains(line, "MiB") {
-													// Parse "Memory at ... [size=8G]" or "Memory: ... [size=8192M]"
-													parts := strings.Fields(line)
-													for _, part := range parts {
-														if strings.Contains(part, "size=") {
-															sizeStr := strings.TrimPrefix(part, "size=")
-															// Remove trailing ] if present
-															sizeStr = strings.TrimSuffix(sizeStr, "]")
-															// Check if it's in GB
-															if strings.HasSuffix(sizeStr, "G") {
-																if gb, err := strconv.ParseUint(strings.TrimSuffix(sizeStr, "G"), 10, 64); err == nil {
-																	gpuMemoryMB = gb * 1024
-																	break
-																}
-															} else if strings.HasSuffix(sizeStr, "M") {
-																if mb, err := strconv.ParseUint(strings.TrimSuffix(sizeStr, "M"), 10, 64); err == nil {
-																	gpuMemoryMB = mb
-																	break
+								// Read from PCI device resource files
+								// /sys/bus/pci/devices/0000:XX:XX.X/resource
+								devicePath := filepath.Join(drmDir, entry.Name(), "device")
+								if link, err := os.Readlink(devicePath); err == nil {
+									// Resolve to absolute path
+									absDevicePath := filepath.Join(drmDir, entry.Name(), link)
+									absDevicePath = filepath.Clean(absDevicePath)
+									
+									// Check PCI resource files for memory size
+									// resource0, resource1, etc. contain memory regions
+									// Format: start end flags
+									// Flags bit 1 (0x2) indicates prefetchable memory
+									// Flags bit 3 (0x8) indicates 64-bit address
+									for i := 0; i < 6; i++ {
+										resourceFile := filepath.Join(absDevicePath, fmt.Sprintf("resource%d", i))
+										if data, err := os.ReadFile(resourceFile); err == nil {
+											// Format: "0xSTART 0xEND 0xFLAGS"
+											parts := strings.Fields(string(data))
+											if len(parts) >= 2 {
+												start, err1 := strconv.ParseUint(strings.TrimPrefix(parts[0], "0x"), 16, 64)
+												end, err2 := strconv.ParseUint(strings.TrimPrefix(parts[1], "0x"), 16, 64)
+												if err1 == nil && err2 == nil && end > start {
+													// Check if this is a memory region (not I/O)
+													if len(parts) >= 3 {
+														flags, err3 := strconv.ParseUint(strings.TrimPrefix(parts[2], "0x"), 16, 64)
+														if err3 == nil {
+															// Bit 0 = I/O space (not memory), bit 1 = prefetchable
+															// We want memory regions (bit 0 = 0)
+															if flags&0x1 == 0 {
+																size := end - start + 1
+																// Only count large memory regions (likely VRAM)
+																// Small regions are usually registers
+																if size >= 1024*1024*1024 { // At least 1GB
+																	gpuMemoryMB += size / (1024 * 1024)
 																}
 															}
 														}
 													}
-													if gpuMemoryMB > 0 {
-														break
+												}
+											}
+										}
+									}
+								}
+							}
+							
+							// Try reading from lspci output as final fallback (if available)
+							if gpuMemoryMB == 0 {
+								// Check if lspci exists
+								if _, err := exec.LookPath("lspci"); err == nil {
+									// Find GPU PCI device
+									lspciCmd := exec.Command("sh", "-c", "lspci | grep -i 'vga\\|display\\|3d' | grep -i intel | head -1 | cut -d' ' -f1")
+									if pciAddr, err := lspciCmd.Output(); err == nil {
+										pciAddrStr := strings.TrimSpace(string(pciAddr))
+										if pciAddrStr != "" {
+											cmd := exec.Command("lspci", "-v", "-s", pciAddrStr)
+											output, err := cmd.Output()
+											if err == nil {
+												lines := strings.Split(string(output), "\n")
+												for _, line := range lines {
+													if strings.Contains(strings.ToLower(line), "memory") && (strings.Contains(line, "MiB") || strings.Contains(line, "size=")) {
+														// Parse "Memory at ... [size=8G]" or "Memory: ... [size=8192M]"
+														parts := strings.Fields(line)
+														for _, part := range parts {
+															if strings.Contains(part, "size=") {
+																sizeStr := strings.TrimPrefix(part, "size=")
+																// Remove trailing ] if present
+																sizeStr = strings.TrimSuffix(sizeStr, "]")
+																// Check if it's in GB
+																if strings.HasSuffix(sizeStr, "G") {
+																	if gb, err := strconv.ParseUint(strings.TrimSuffix(sizeStr, "G"), 10, 64); err == nil {
+																		gpuMemoryMB = gb * 1024
+																		break
+																	}
+																} else if strings.HasSuffix(sizeStr, "M") {
+																	if mb, err := strconv.ParseUint(strings.TrimSuffix(sizeStr, "M"), 10, 64); err == nil {
+																		gpuMemoryMB = mb
+																		break
+																	}
+																}
+															}
+														}
+														if gpuMemoryMB > 0 {
+															break
+														}
 													}
 												}
 											}

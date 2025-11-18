@@ -1,47 +1,35 @@
 #!/bin/bash
-#
-# Install FFmpeg 8.0 Static Build
-# Downloads and installs pre-built FFmpeg 8.0 static binary
-#
-# Usage: sudo bash install_ffmpeg8_static.sh
+# Install FFmpeg 8.0 static build from BtbN/FFmpeg-Builds
 
 set -e
 
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}  FFmpeg 8.0 Static Build Installation${NC}"
-echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
-echo ""
+NC='\033[0m' # No Color
 
 # Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}ERROR: This script must be run as root${NC}"
-    echo "Usage: sudo bash install_ffmpeg8_static.sh"
+if [ "$EUID" -ne 0 ]; then 
+    echo -e "${RED}Please run as root (use sudo)${NC}"
     exit 1
 fi
 
-INSTALL_DIR="/usr/local/bin"
-# Try multiple possible URLs for FFmpeg 8.0 static build
-STATIC_URLS=(
-    "https://johnvansickle.com/ffmpeg/releases/ffmpeg-8.0-amd64-static.tar.xz"
-    "https://johnvansickle.com/ffmpeg/builds/ffmpeg-8.0-amd64-static.tar.xz"
-    "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
-)
-TMP_DIR=$(mktemp -d)
-cd "$TMP_DIR"
+echo "════════════════════════════════════════════════════════"
+echo "  FFmpeg 8.0 Static Build Installation"
+echo "════════════════════════════════════════════════════════"
+echo ""
 
 # Function to check FFmpeg version
 check_ffmpeg_version() {
     if command -v ffmpeg &> /dev/null; then
-        VERSION=$(ffmpeg -version 2>&1 | head -n1 | grep -oP '\d+\.\d+' | head -1)
-        MAJOR=$(echo "$VERSION" | cut -d. -f1)
-        if [ "$MAJOR" -ge 8 ] 2>/dev/null; then
-            return 0
+        VERSION=$(ffmpeg -version 2>&1 | head -1 | grep -oP 'ffmpeg version \K[0-9]+\.[0-9]+' || echo "")
+        if [ -n "$VERSION" ]; then
+            MAJOR=$(echo "$VERSION" | cut -d. -f1)
+            MINOR=$(echo "$VERSION" | cut -d. -f2)
+            if [ "$MAJOR" -gt 8 ] || ([ "$MAJOR" -eq 8 ] && [ "$MINOR" -ge 0 ]); then
+                return 0
+            fi
         fi
     fi
     return 1
@@ -52,7 +40,7 @@ if check_ffmpeg_version; then
     echo -e "${GREEN}✓ FFmpeg 8.0+ already installed${NC}"
     ffmpeg -version | head -1
     
-    # Check for QSV encoder
+    # Check if it has QSV support
     if ffmpeg -encoders 2>&1 | grep -q av1_qsv; then
         echo -e "${GREEN}✓ av1_qsv encoder available${NC}"
         exit 0
@@ -66,148 +54,104 @@ fi
 echo -e "${YELLOW}[1/4] Installing required tools...${NC}"
 apt-get update -qq
 
-if ! command -v wget &> /dev/null; then
-    apt-get install -y -qq wget || {
-        if ! command -v curl &> /dev/null; then
-            apt-get install -y -qq curl || {
-                echo -e "${RED}✗ Cannot install wget or curl${NC}"
-                exit 1
-            }
-        fi
+# Install wget/curl and xz-utils if needed
+if ! command -v wget &> /dev/null && ! command -v curl &> /dev/null; then
+    apt-get install -y -qq wget || apt-get install -y -qq curl || {
+        echo -e "${RED}✗ Cannot install wget or curl${NC}"
+        exit 1
     }
 fi
 
 if ! command -v xz &> /dev/null; then
     apt-get install -y -qq xz-utils || {
-        echo -e "${RED}✗ Cannot install xz-utils${NC}"
+        echo -e "${RED}✗ Cannot install xz-utils (needed for extraction)${NC}"
         exit 1
     }
 fi
 
-# Download static build
+# Download FFmpeg 8.0 static build
 echo -e "${YELLOW}[2/4] Downloading FFmpeg 8.0 static build...${NC}"
+STATIC_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-linux64-gpl-8.0.tar.xz"
+TMP_DIR=$(mktemp -d)
+cd "$TMP_DIR"
 
-DOWNLOAD_SUCCESS=false
-DOWNLOADED_URL=""
-
-# Try each URL until one works
-for url in "${STATIC_URLS[@]}"; do
-    echo "Trying: $url"
-    
-    if command -v wget &> /dev/null; then
-        if wget --progress=bar:force:noscroll --show-progress "$url" -O ffmpeg-static.tar.xz 2>&1; then
-            if [ -f "ffmpeg-static.tar.xz" ] && [ -s "ffmpeg-static.tar.xz" ]; then
-                FILE_SIZE=$(stat -c%s ffmpeg-static.tar.xz 2>/dev/null || stat -f%z ffmpeg-static.tar.xz 2>/dev/null || echo "0")
-                if [ "$FILE_SIZE" -gt 1000000 ]; then
-                    DOWNLOAD_SUCCESS=true
-                    DOWNLOADED_URL="$url"
-                    break
-                fi
-            fi
-        fi
-    elif command -v curl &> /dev/null; then
-        HTTP_CODE=$(curl -L --write-out "%{http_code}" --silent --output ffmpeg-static.tar.xz "$url")
-        if [ "$HTTP_CODE" = "200" ] && [ -f "ffmpeg-static.tar.xz" ] && [ -s "ffmpeg-static.tar.xz" ]; then
-            FILE_SIZE=$(stat -c%s ffmpeg-static.tar.xz 2>/dev/null || stat -f%z ffmpeg-static.tar.xz 2>/dev/null || echo "0")
-            if [ "$FILE_SIZE" -gt 1000000 ]; then
-                DOWNLOAD_SUCCESS=true
-                DOWNLOADED_URL="$url"
-                break
-            fi
-        fi
-    fi
-    
-    rm -f ffmpeg-static.tar.xz 2>/dev/null
-done
-
-# If all URLs failed, try git build as fallback
-if [ "$DOWNLOAD_SUCCESS" = "false" ]; then
-    echo -e "${YELLOW}⚠ FFmpeg 8.0 release not found, trying git build...${NC}"
-    GIT_URL="https://johnvansickle.com/ffmpeg/builds/ffmpeg-git-amd64-static.tar.xz"
-    echo "Trying: $GIT_URL"
-    
-    if command -v wget &> /dev/null; then
-        wget --progress=bar:force:noscroll --show-progress "$GIT_URL" -O ffmpeg-static.tar.xz 2>&1 || {
-            echo -e "${RED}✗ All download attempts failed${NC}"
-            exit 1
-        }
-    else
-        curl -L --progress-bar "$GIT_URL" -o ffmpeg-static.tar.xz || {
-            echo -e "${RED}✗ All download attempts failed${NC}"
-            exit 1
-        }
-    fi
-    
-    if [ ! -f "ffmpeg-static.tar.xz" ] || [ ! -s "ffmpeg-static.tar.xz" ]; then
+echo "Downloading from: $STATIC_URL"
+if command -v wget &> /dev/null; then
+    wget --progress=bar:force:noscroll -q --show-progress "$STATIC_URL" -O ffmpeg-static.tar.xz 2>&1 || {
         echo -e "${RED}✗ Download failed${NC}"
         exit 1
-    fi
-    
-    DOWNLOADED_URL="$GIT_URL"
-    echo -e "${YELLOW}⚠ Using git build (may not be exactly 8.0)${NC}"
+    }
+else
+    curl -L --progress-bar "$STATIC_URL" -o ffmpeg-static.tar.xz || {
+        echo -e "${RED}✗ Download failed${NC}"
+        exit 1
+    }
 fi
 
-# Verify file was downloaded and has content
-if [ ! -s "ffmpeg-static.tar.xz" ]; then
-    echo -e "${RED}✗ Downloaded file is empty${NC}"
-    exit 1
-fi
-
-FILE_SIZE=$(stat -c%s ffmpeg-static.tar.xz 2>/dev/null || stat -f%z ffmpeg-static.tar.xz 2>/dev/null || echo "0")
-if [ "$FILE_SIZE" -lt 1000000 ]; then
-    echo -e "${RED}✗ Downloaded file is too small (may be an error page)${NC}"
-    echo "File size: $FILE_SIZE bytes"
-    exit 1
-fi
-
-echo -e "${GREEN}✓ Download complete from: $DOWNLOADED_URL${NC}"
-echo -e "${GREEN}  File size: ${FILE_SIZE} bytes${NC}"
+echo -e "${GREEN}✓ Download complete${NC}"
 
 # Extract
 echo -e "${YELLOW}[3/4] Extracting...${NC}"
-tar xf ffmpeg-static.tar.xz
+tar xf ffmpeg-static.tar.xz || {
+    echo -e "${RED}✗ Extraction failed${NC}"
+    exit 1
+}
 
-# Find extracted directory
-FFMPEG_DIR=$(find . -maxdepth 1 -type d -name "ffmpeg-*-static" | head -n1)
-
-if [ -z "$FFMPEG_DIR" ]; then
-    echo -e "${RED}✗ Failed to find extracted directory${NC}"
+# Find the extracted directory
+EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "ffmpeg-n8.0-*" | head -1)
+if [ -z "$EXTRACTED_DIR" ]; then
+    echo -e "${RED}✗ Could not find extracted directory${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}✓ Extracted to: $FFMPEG_DIR${NC}"
+echo -e "${GREEN}✓ Extracted to: $EXTRACTED_DIR${NC}"
 
 # Install binaries
 echo -e "${YELLOW}[4/4] Installing binaries...${NC}"
+INSTALL_DIR="/usr/local/bin"
 
-# Ensure install directory exists
-mkdir -p "$INSTALL_DIR"
+# Copy binaries
+cp "$EXTRACTED_DIR/bin/ffmpeg" "$INSTALL_DIR/ffmpeg" || {
+    echo -e "${RED}✗ Failed to copy ffmpeg${NC}"
+    exit 1
+}
 
-# Install binaries
-cp "$FFMPEG_DIR/ffmpeg" "$INSTALL_DIR/ffmpeg"
-cp "$FFMPEG_DIR/ffprobe" "$INSTALL_DIR/ffprobe"
+cp "$EXTRACTED_DIR/bin/ffprobe" "$INSTALL_DIR/ffprobe" || {
+    echo -e "${RED}✗ Failed to copy ffprobe${NC}"
+    exit 1
+}
+
+# Copy ffplay if it exists
+[ -f "$EXTRACTED_DIR/bin/ffplay" ] && cp "$EXTRACTED_DIR/bin/ffplay" "$INSTALL_DIR/ffplay" || true
+
+# Make executable
 chmod +x "$INSTALL_DIR/ffmpeg"
 chmod +x "$INSTALL_DIR/ffprobe"
-
-echo -e "${GREEN}✓ Installed to $INSTALL_DIR${NC}"
+[ -f "$INSTALL_DIR/ffplay" ] && chmod +x "$INSTALL_DIR/ffplay" || true
 
 # Create symlinks in /usr/bin for system-wide access
-echo -e "${YELLOW}Creating symlinks...${NC}"
-ln -sf "$INSTALL_DIR/ffmpeg" /usr/bin/ffmpeg
-ln -sf "$INSTALL_DIR/ffprobe" /usr/bin/ffprobe
-
-# Verify installation
-echo -e "${YELLOW}Verifying installation...${NC}"
-
-if [ -x "$INSTALL_DIR/ffmpeg" ]; then
-    "$INSTALL_DIR/ffmpeg" -version | head -1
-    echo -e "${GREEN}✓ FFmpeg installed at $INSTALL_DIR/ffmpeg${NC}"
+if [ "$INSTALL_DIR" != "/usr/bin" ]; then
+    ln -sf "$INSTALL_DIR/ffmpeg" /usr/bin/ffmpeg
+    ln -sf "$INSTALL_DIR/ffprobe" /usr/bin/ffprobe
+    [ -f "$INSTALL_DIR/ffplay" ] && ln -sf "$INSTALL_DIR/ffplay" /usr/bin/ffplay || true
 fi
 
+# Cleanup
+cd /
+rm -rf "$TMP_DIR"
+
+# Verify installation
+echo ""
+echo -e "${YELLOW}Verifying installation...${NC}"
 if check_ffmpeg_version; then
     echo -e "${GREEN}✓ FFmpeg 8.0+ installed successfully!${NC}"
     echo ""
     ffmpeg -version | head -1
+    echo ""
+    
+    # Check for encoders
+    echo "Available AV1 encoders:"
+    ffmpeg -encoders 2>&1 | grep -i av1 || echo "  (none found)"
     echo ""
     
     # Check for QSV encoder (may not be available in static build)
@@ -215,13 +159,9 @@ if check_ffmpeg_version; then
         echo -e "${GREEN}✓ av1_qsv encoder available${NC}"
     else
         echo -e "${YELLOW}⚠ av1_qsv encoder not found${NC}"
-        echo "Note: Static builds typically don't include QSV support"
-        echo "For QSV support, you need to build from source with Intel GPU libraries"
+        echo "Note: Static builds may not include QSV support."
+        echo "For QSV support, you may need to build from source with Intel GPU libraries."
     fi
-    
-    # Cleanup
-    cd /
-    rm -rf "$TMP_DIR"
     
     echo ""
     echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"

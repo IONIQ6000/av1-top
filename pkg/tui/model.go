@@ -699,7 +699,7 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 							
 							// Try reading from PCI sysfs (no lspci needed)
 							if gpuMemoryMB == 0 {
-								// Read from PCI device resource files
+								// Read from PCI device resource file (text format)
 								// /sys/bus/pci/devices/0000:XX:XX.X/resource
 								devicePath := filepath.Join(drmDir, entry.Name(), "device")
 								if link, err := os.Readlink(devicePath); err == nil {
@@ -707,16 +707,17 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 									absDevicePath := filepath.Join(drmDir, entry.Name(), link)
 									absDevicePath = filepath.Clean(absDevicePath)
 									
-									// Check PCI resource files for memory size
-									// resource0, resource1, etc. contain memory regions
-									// Format: start end flags
-									// Flags bit 1 (0x2) indicates prefetchable memory
-									// Flags bit 3 (0x8) indicates 64-bit address
-									for i := 0; i < 6; i++ {
-										resourceFile := filepath.Join(absDevicePath, fmt.Sprintf("resource%d", i))
-										if data, err := os.ReadFile(resourceFile); err == nil {
-											// Format: "0xSTART 0xEND 0xFLAGS"
-											parts := strings.Fields(string(data))
+									// Read the text resource file (not binary resource0, resource1, etc.)
+									resourceFile := filepath.Join(absDevicePath, "resource")
+									if data, err := os.ReadFile(resourceFile); err == nil {
+										// Format: one line per resource, "0xSTART 0xEND 0xFLAGS"
+										lines := strings.Split(string(data), "\n")
+										for _, line := range lines {
+											line = strings.TrimSpace(line)
+											if line == "" {
+												continue
+											}
+											parts := strings.Fields(line)
 											if len(parts) >= 2 {
 												start, err1 := strconv.ParseUint(strings.TrimPrefix(parts[0], "0x"), 16, 64)
 												end, err2 := strconv.ParseUint(strings.TrimPrefix(parts[1], "0x"), 16, 64)

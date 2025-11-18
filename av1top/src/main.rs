@@ -748,6 +748,11 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
 
     if let Some(err) = &app.job_load_error {
         spans.push(Span::styled(format!("⚠ {}", err), Style::default().fg(Color::Yellow)));
+    } else if queue_stats.total == 0 {
+        spans.push(Span::styled(
+            "Waiting for jobs... (check daemon: sudo journalctl -u av1janitor -f)",
+            Style::default().fg(Color::Yellow)
+        ));
     } else {
         spans.push(Span::styled(
             format!("✓ {} jobs loaded", queue_stats.total),

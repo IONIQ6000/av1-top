@@ -47,6 +47,22 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	// Resolve relative paths to absolute paths
+	for i, dir := range cfg.WatchedDirectories {
+		if !filepath.IsAbs(dir) {
+			// Try to resolve relative path
+			absPath, err := filepath.Abs(dir)
+			if err == nil {
+				cfg.WatchedDirectories[i] = absPath
+			}
+		}
+	}
+
+	// Set default max scan depth if not specified
+	if cfg.MaxScanDepth == 0 && len(cfg.WatchedDirectories) > 0 {
+		cfg.MaxScanDepth = 1 // Default to one level deep
+	}
+
 	// Validate
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)

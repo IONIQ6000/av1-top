@@ -99,6 +99,25 @@ async fn main() -> Result<()> {
     // Set ffmpeg path from detection
     config.ffmpeg_path = Some(ffmpeg.ffmpeg_path.clone());
     
+    // If no watched directories set, try to use a common media directory
+    if config.watched_directories.is_empty() {
+        // Try common media directories
+        let common_dirs = vec![
+            PathBuf::from("/media"),
+            PathBuf::from("/mnt/media"),
+            PathBuf::from("/home/media"),
+            PathBuf::from("/opt/media"),
+        ];
+        
+        for dir in common_dirs {
+            if dir.exists() {
+                info!("No watched directories configured, using default: {}", dir.display());
+                config.watched_directories = vec![dir];
+                break;
+            }
+        }
+    }
+    
     // Validate configuration
     config.validate()?;
     

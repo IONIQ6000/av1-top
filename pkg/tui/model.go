@@ -290,8 +290,15 @@ func (m Model) renderCurrentJob() string {
 			Render("Current Transcode\nNo active transcoding job")
 	}
 
+	filename := runningJob.FilePath
+	if filename == "" {
+		filename = "(unknown)"
+	} else {
+		filename = filepath.Base(filename)
+	}
+
 	info := fmt.Sprintf("File: %s\nStatus: %s\nStarted: %s",
-		filepath.Base(runningJob.FilePath),
+		filename,
 		runningJob.Status,
 		runningJob.CreatedAt)
 

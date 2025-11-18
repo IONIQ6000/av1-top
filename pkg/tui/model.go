@@ -536,33 +536,56 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 		}
 		
 		// Method 2: Try reading from /sys/class/drm (more reliable)
-		// Check multiple possible paths
+		// Check multiple possible paths - Intel GPU frequency can be in different locations
 		freqPaths := []string{
-			"/sys/class/drm/card0/gt/cur_freq_mhz",
-			"/sys/class/drm/card0/gt_min_freq_mhz",
-			"/sys/class/drm/renderD128/device/gt/cur_freq_mhz",
+			"/sys/class/drm/card0/gt_min_freq_mhz",  // Minimum frequency (more reliable)
+			"/sys/class/drm/card0/gt_max_freq_mhz",   // Max frequency
+			"/sys/class/drm/card0/gt_RP0_freq_mhz",   // RP0 (max performance)
+			"/sys/class/drm/card0/gt_RPn_freq_mhz",   // RPn (min performance)
+			"/sys/class/drm/renderD128/device/gt_min_freq_mhz",
 		}
 		
+		// Try to find frequency files
+		var minFreq, maxFreq float64
 		for _, freqFile := range freqPaths {
 			if data, err := os.ReadFile(freqFile); err == nil {
-				if freq, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil {
-					// Try to get max freq for normalization
-					maxFreqFile := strings.Replace(freqFile, "cur_freq", "max_freq", 1)
-					maxFreq := 1200.0 // Default max
-					if maxData, err := os.ReadFile(maxFreqFile); err == nil {
-						if mf, err := strconv.ParseFloat(strings.TrimSpace(string(maxData)), 64); err == nil && mf > 0 {
-							maxFreq = mf
-						}
+				if freq, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil && freq > 0 {
+					if strings.Contains(freqFile, "min") {
+						minFreq = freq
+					} else if strings.Contains(freqFile, "max") || strings.Contains(freqFile, "RP0") {
+						maxFreq = freq
 					}
-					// Calculate usage percentage
-					usage := (freq / maxFreq) * 100.0
-					if usage > gpuUsage {
-						gpuUsage = usage
+				}
+			}
+		}
+		
+		// If we found frequencies, try to get current frequency from different location
+		// Or use min/max ratio as proxy
+		if maxFreq > 0 && minFreq > 0 {
+			// Try to find current frequency
+			curFreqPaths := []string{
+				"/sys/class/drm/card0/gt_cur_freq_mhz",
+				"/sys/class/drm/card0/gt/gt_cur_freq_mhz",
+				"/sys/kernel/debug/dri/0/gt/cur_freq_mhz",
+			}
+			curFreq := minFreq // Default to min if we can't find current
+			for _, freqFile := range curFreqPaths {
+				if data, err := os.ReadFile(freqFile); err == nil {
+					if freq, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil && freq > 0 {
+						curFreq = freq
+						break
 					}
-					if gpuUsage > 100 {
-						gpuUsage = 100
-					}
-					break
+				}
+			}
+			
+			// Calculate usage as percentage of frequency range
+			if maxFreq > minFreq {
+				usage := ((curFreq - minFreq) / (maxFreq - minFreq)) * 100.0
+				if usage > gpuUsage {
+					gpuUsage = usage
+				}
+				if gpuUsage > 100 {
+					gpuUsage = 100
 				}
 			}
 		}

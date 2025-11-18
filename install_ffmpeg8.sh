@@ -116,6 +116,19 @@ if $DOWNLOAD_CMD --progress=bar:force:noscroll -q --show-progress "$STATIC_URL" 
     # Verify installation
     echo -e "${YELLOW}[4/4] Verifying installation...${NC}"
     
+    # Check using full path first
+    if [ -x "$INSTALL_DIR/ffmpeg" ]; then
+        "$INSTALL_DIR/ffmpeg" -version | head -1
+        echo -e "${GREEN}✓ FFmpeg installed at $INSTALL_DIR/ffmpeg${NC}"
+    fi
+    
+    # Also create symlinks in /usr/bin for system-wide access
+    if [ "$INSTALL_DIR" != "/usr/bin" ]; then
+        echo -e "${YELLOW}Creating symlinks in /usr/bin for system-wide access...${NC}"
+        ln -sf "$INSTALL_DIR/ffmpeg" /usr/bin/ffmpeg
+        ln -sf "$INSTALL_DIR/ffprobe" /usr/bin/ffprobe
+    fi
+    
     if check_ffmpeg_version; then
         echo -e "${GREEN}✓ FFmpeg 8.0+ installed successfully!${NC}"
         echo ""

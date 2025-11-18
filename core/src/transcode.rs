@@ -101,9 +101,9 @@ pub fn build_ffmpeg_command(_ffmpeg_path: &Path, params: &TranscodeParams) -> Ve
     args.push("-hwaccel".to_string());
     args.push("none".to_string()); // Don't use hwaccel for input
     
-    // Initialize hardware devices for QSV
-    // In containers, we need to initialize VAAPI first, then use it as child device for QSV
-    // This is because oneVPL may not have direct DRM access in containers
+    // Initialize hardware devices
+    // Use VAAPI directly since QSV/oneVPL has issues in containers
+    // VAAPI supports AV1 encoding and works reliably
     if let Ok(entries) = std::fs::read_dir("/dev/dri") {
         // Check if we have renderD* devices
         let has_render = entries
@@ -111,27 +111,29 @@ pub fn build_ffmpeg_command(_ffmpeg_path: &Path, params: &TranscodeParams) -> Ve
             .any(|e| e.file_name().to_string_lossy().starts_with("renderD"));
         
         if has_render {
-            // Initialize VAAPI device first (named "va")
+            // Initialize VAAPI device (named "va")
             // Use auto-detection - VAAPI will find the device automatically
             args.push("-init_hw_device".to_string());
             args.push("vaapi=va".to_string());
             
-            // Then initialize QSV using VAAPI device (use @ to reference named device)
-            args.push("-init_hw_device".to_string());
-            args.push("qsv=hw@va".to_string());
+            args.push("-filter_hw_device".to_string());
+            args.push("va".to_string());
         } else {
-            // No render device found, try direct QSV initialization
+            // No render device found, try basic QSV as fallback
             args.push("-init_hw_device".to_string());
             args.push("qsv=hw".to_string());
+            
+            args.push("-filter_hw_device".to_string());
+            args.push("hw".to_string());
         }
     } else {
         // No /dev/dri, try basic QSV
         args.push("-init_hw_device".to_string());
         args.push("qsv=hw".to_string());
+        
+        args.push("-filter_hw_device".to_string());
+        args.push("hw".to_string());
     }
-    
-    args.push("-filter_hw_device".to_string());
-    args.push("hw".to_string());
     
     // Input file analysis settings
     args.push("-analyzeduration".to_string());
@@ -200,27 +202,57 @@ pub fn build_ffmpeg_command(_ffmpeg_path: &Path, params: &TranscodeParams) -> Ve
         args.push("make_zero".to_string());
     }
     
-    // Video filter chain
-    // 1. Pad to even dimensions (ceil to nearest even number)
-    // 2. Set SAR to 1:1
-    // 3. Convert to target surface format
-    // 4. Upload to hardware with extra frames for B-frames
-    let video_filter = format!(
-        "pad=ceil(iw/2)*2:ceil(ih/2)*2,setsar=1,format={},hwupload=extra_hw_frames=64",
-        params.surface
-    );
-    args.push("-vf:v:0".to_string());
-    args.push(video_filter);
+    // Video filter chain and encoding
+    // Use VAAPI if we have render devices, otherwise fall back to QSV
+    let has_vaapi = std::fs::read_dir("/dev/dri")
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .any(|e| e.file_name().to_string_lossy().starts_with("renderD"))
+        })
+        .unwrap_or(false);
     
-    // Video encoding settings
-    args.push("-c:v:0".to_string());
-    args.push("av1_qsv".to_string());
-    args.push("-global_quality:v:0".to_string());
-    args.push(params.quality.to_string());
-    args.push("-preset:v:0".to_string());
-    args.push("medium".to_string());
-    args.push("-look_ahead".to_string());
-    args.push("1".to_string());
+    if has_vaapi {
+        // VAAPI encoding path
+        // Filter: pad to even, set SAR, convert to NV12, upload to VAAPI
+        let video_filter = format!(
+            "pad=ceil(iw/2)*2:ceil(ih/2)*2,setsar=1,format=nv12,hwupload"
+        );
+        args.push("-vf:v:0".to_string());
+        args.push(video_filter);
+        
+        // VAAPI AV1 encoding settings
+        args.push("-c:v:0".to_string());
+        args.push("av1_vaapi".to_string());
+        // VAAPI uses compression_level (0-8, lower = better quality)
+        // Map QSV quality (23-25) to VAAPI compression_level (roughly: 25->6, 24->5, 23->4)
+        let compression_level = match params.quality {
+            23 => "4",  // Best quality
+            24 => "5",  // High quality
+            25 => "6",  // Good quality
+            _ => "5",
+        };
+        args.push("-compression_level:v:0".to_string());
+        args.push(compression_level.to_string());
+    } else {
+        // QSV encoding path (fallback)
+        let video_filter = format!(
+            "pad=ceil(iw/2)*2:ceil(ih/2)*2,setsar=1,format={},hwupload=extra_hw_frames=64",
+            params.surface
+        );
+        args.push("-vf:v:0".to_string());
+        args.push(video_filter);
+        
+        // QSV AV1 encoding settings
+        args.push("-c:v:0".to_string());
+        args.push("av1_qsv".to_string());
+        args.push("-global_quality:v:0".to_string());
+        args.push(params.quality.to_string());
+        args.push("-preset:v:0".to_string());
+        args.push("medium".to_string());
+        args.push("-look_ahead".to_string());
+        args.push("1".to_string());
+    }
     
     // Audio and subtitle copying (no re-encoding)
     args.push("-c:a".to_string());

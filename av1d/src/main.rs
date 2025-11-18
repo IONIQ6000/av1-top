@@ -291,10 +291,29 @@ async fn process_all_files(
     };
     
     // Scan for files
+    info!("Scanning directories for media files...");
     let files = scan_directories(config)?;
     results.total = files.len();
     
     info!("Found {} media files to process", files.len());
+    
+    if files.is_empty() {
+        warn!("No media files found! Check:");
+        warn!("  - Directory exists and is readable: {:?}", config.watched_directories);
+        warn!("  - File extensions match: {:?}", config.media_extensions);
+        warn!("  - Files meet minimum size: {:.1} GiB", config.min_file_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0));
+    } else {
+        info!("Sample files found:");
+        for (i, file) in files.iter().take(5).enumerate() {
+            if let Ok(metadata) = fs::metadata(file) {
+                let size_gb = metadata.len() as f64 / (1024.0 * 1024.0 * 1024.0);
+                info!("  [{}] {} ({:.2} GiB)", i + 1, file.display(), size_gb);
+            }
+        }
+        if files.len() > 5 {
+            info!("  ... and {} more files", files.len() - 5);
+        }
+    }
     
     if dry_run {
         warn!("DRY RUN MODE - No actual transcoding will occur");
@@ -558,13 +577,19 @@ async fn is_file_stable(file_path: &Path) -> Result<bool> {
 fn scan_directories(config: &TranscodeConfig) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     
+    info!("Scanning {} watched director{}", config.watched_directories.len(), if config.watched_directories.len() == 1 { "y" } else { "ies" });
+    
     for root_dir in &config.watched_directories {
         if !root_dir.exists() {
             warn!("Directory does not exist: {}", root_dir.display());
             continue;
         }
         
+        info!("Scanning directory: {}", root_dir.display());
+        let before_count = files.len();
         scan_directory_recursive(root_dir, &config.media_extensions, &mut files)?;
+        let found = files.len() - before_count;
+        info!("  Found {} media files in {}", found, root_dir.display());
     }
     
     Ok(files)
@@ -577,14 +602,26 @@ fn scan_directory_recursive(
     extensions: &[String],
     files: &mut Vec<PathBuf>,
 ) -> Result<()> {
-    let entries = fs::read_dir(dir)
-        .with_context(|| format!("Failed to read directory: {}", dir.display()))?;
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            warn!("Cannot read directory {}: {}", dir.display(), e);
+            return Ok(());
+        }
+    };
     
     let mut subdirs = Vec::new();
+    let mut files_found_here = 0;
     
     // First pass: collect files from current directory and list subdirectories
     for entry in entries {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                warn!("Error reading directory entry in {}: {}", dir.display(), e);
+                continue;
+            }
+        };
         let path = entry.path();
         
         if path.is_dir() {
@@ -592,12 +629,19 @@ fn scan_directory_recursive(
         } else if path.is_file() {
             if let Some(ext) = path.extension() {
                 if let Some(ext_str) = ext.to_str() {
-                    if extensions.contains(&ext_str.to_lowercase()) {
+                    let ext_lower = ext_str.to_lowercase();
+                    if extensions.contains(&ext_lower) {
                         files.push(path);
+                        files_found_here += 1;
                     }
                 }
             }
         }
+    }
+    
+    // Log if we found files at this level
+    if files_found_here > 0 {
+        debug!("Found {} media files in {}", files_found_here, dir.display());
     }
     
     // Second pass: check each subdirectory at one level deep
@@ -662,4 +706,6 @@ fn print_configuration(config: &TranscodeConfig, paths_config: &PathsConfig, dry
     for dir in &config.watched_directories {
         info!("    - {}", dir.display());
     }
+}
+
 }

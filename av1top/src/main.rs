@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use core::{JobStatus, PathsConfig, TranscodeJob};
+use std::path::PathBuf;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
@@ -119,7 +120,11 @@ impl App {
         let mut sys = System::new();
         sys.refresh_all();
 
-        let paths_config = PathsConfig::default();
+        // Use system-wide paths to match daemon
+        let paths_config = PathsConfig {
+            logs_dir: PathBuf::from("/var/log/av1janitor"),
+            jobs_dir: PathBuf::from("/var/lib/av1janitor/jobs"),
+        };
 
         // Try to load real jobs from disk
         let (jobs, job_load_error) = match core::load_all_jobs(&paths_config.jobs_dir) {

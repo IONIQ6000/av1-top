@@ -79,7 +79,11 @@ async fn main() -> Result<()> {
         TranscodeConfig::default()
     };
     
-    let paths_config = PathsConfig::default();
+    // Use system-wide paths for daemon
+    let paths_config = PathsConfig {
+        logs_dir: PathBuf::from("/var/log/av1janitor"),
+        jobs_dir: PathBuf::from("/var/lib/av1janitor/jobs"),
+    };
     
     // Override with CLI arguments
     let cli_directory = args.directory.clone();

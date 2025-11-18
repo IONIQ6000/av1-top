@@ -1,204 +1,215 @@
-# Why Am I Seeing "Demo Data"?
+# Why the TUI Shows "Demo Data" - Quick Troubleshooting
 
-## This is NORMAL!
+## TL;DR
 
-The TUI shows "demo data" when **there are no real transcode jobs yet**. This is by design, not a bug!
+The TUI shows "demo data" when **no job files exist in `/var/lib/av1janitor/jobs/`**. This is NORMAL if:
+- The daemon just started
+- No files meet the transcoding criteria yet
+- The daemon is scanning your directories
 
----
-
-## How The TUI Works
-
-```rust
-// From av1top/src/main.rs lines 124-136:
-match core::load_all_jobs(&paths_config.jobs_dir) {
-    Ok(loaded_jobs) => {
-        if loaded_jobs.is_empty() {
-            // NO JOBS FOUND = SHOW DEMO DATA
-            (create_dummy_jobs(), Some("No job files found, showing demo data"))
-        } else {
-            // JOBS FOUND = SHOW REAL DATA
-            (loaded_jobs, None)
-        }
-    }
-    Err(e) => {
-        (create_dummy_jobs(), Some(format!("Error loading jobs: {}", e)))
-    }
-}
-```
-
-**The TUI shows demo data when the jobs directory is empty!**
+**The TUI is NOT a demo - it's the full production TUI!** It just needs real jobs from the daemon.
 
 ---
 
-## Why Is It Empty?
+## Quick Checklist
 
-Jobs are stored in: `/var/lib/av1janitor/jobs/`
-
-The daemon (`av1d`) creates job files when it:
-1. Scans your configured directories
-2. Finds media files that need transcoding
-3. Creates a job JSON file for each
-
-**If you don't have any jobs yet, you see demo data.**
-
----
-
-## How To See Real Data
-
-### Step 1: Make sure you're on Linux
+Run these commands on your Linux system:
 
 ```bash
-# On your Linux system (not macOS)
+# 1. Check if daemon is running
+sudo systemctl status av1janitor
+
+# 2. Check for job files
+ls -la /var/lib/av1janitor/jobs/
+
+# 3. Check daemon logs
+sudo journalctl -u av1janitor -n 50
+
+# 4. Test TUI
+av1top
+```
+
+---
+
+## Scenario 1: Daemon Not Running
+
+**Symptoms:**
+- TUI shows "demo data"
+- No job files exist
+- `systemctl status av1janitor` shows "inactive (dead)"
+
+**Solution:**
+```bash
+# Check config first
+sudo nano /etc/av1janitor/config.toml
+# Make sure watched_directories points to your media files
+
+# Start daemon
+sudo systemctl start av1janitor
+sudo systemctl enable av1janitor
+
+# Wait 10 seconds, then check
+sleep 10
+av1top
+```
+
+---
+
+## Scenario 2: No Files Meet Criteria
+
+**Symptoms:**
+- Daemon is running
+- No job files created
+- Logs show "Scanning complete, 0 files found"
+
+**Why:** Files must meet these criteria to be transcoded:
+- Size ≥ 2 GB
+- Extension: .mkv, .mp4, .avi
+- Not already AV1
+- Not WebRip/WEBRip (skipped by default)
+
+**Solution:**
+```bash
+# Check your media files
+find /media -type f -size +2G \( -name "*.mkv" -o -name "*.mp4" -o -name "*.avi" \) | head -5
+
+# Check daemon logs to see what it found
+sudo journalctl -u av1janitor -f
+```
+
+If you don't have files that meet the criteria, you can:
+1. Lower the size threshold in config
+2. Add more file extensions
+3. Wait for the daemon to scan
+
+---
+
+## Scenario 3: Daemon Can't Access Media
+
+**Symptoms:**
+- Daemon is running
+- Logs show permission errors
+
+**Solution:**
+```bash
+# Check permissions
+sudo -u av1janitor ls -la /media/movies
+
+# If permission denied, add av1janitor to proper group
+sudo usermod -a -G your-media-group av1janitor
+sudo systemctl restart av1janitor
+```
+
+---
+
+## Scenario 4: Wrong Binaries (macOS built)
+
+**Symptoms:**
+- `av1top` shows error: "cannot execute binary file"
+- OR av1top runs but shows demo data forever
+
+**Solution:**
+Build on Linux:
+```bash
+# On your Linux system
 cargo build --release --workspace
 ./build-deb.sh
 sudo dpkg -i av1janitor_0.1.0_amd64.deb
-```
-
-### Step 2: Configure your media directories
-
-```bash
-sudo nano /etc/av1janitor/config.toml
-```
-
-Set your actual media directories:
-```toml
-watched_directories = [
-    "/media/movies",
-    "/media/tv",
-    "/path/to/your/media"
-]
-```
-
-### Step 3: Start the daemon
-
-```bash
-sudo systemctl start av1janitor
-sudo systemctl status av1janitor
-```
-
-### Step 4: Wait for jobs to be created
-
-The daemon will:
-1. Scan your configured directories (takes a few seconds)
-2. Find files that need transcoding
-3. Create job files in `/var/lib/av1janitor/jobs/`
-
-Check for jobs:
-```bash
-ls -la /var/lib/av1janitor/jobs/
-```
-
-### Step 5: Run av1top
-
-```bash
+sudo systemctl restart av1janitor
 av1top
 ```
-
-**Now you'll see real data!**
-
-- Real CPU/GPU/Memory/I/O stats from your system
-- Real files being transcoded
-- Real progress bars
-- Real compression ratios
-
----
-
-## Quick Test: Create a Test Job
-
-If you want to test immediately without waiting for the daemon:
-
-```bash
-# Create a test job file
-sudo mkdir -p /var/lib/av1janitor/jobs
-sudo bash -c 'cat > /var/lib/av1janitor/jobs/test-job.json << EOF
-{
-  "source_path": "/media/test-movie.mkv",
-  "status": "Pending",
-  "created_at": "2025-11-17T21:00:00Z",
-  "original_bytes": 5000000000,
-  "reason": "Test"
-}
-EOF'
-
-# Now run av1top
-av1top
-```
-
-You should see the test job in the table!
-
----
-
-## Check Daemon Status
-
-```bash
-# Is the daemon running?
-sudo systemctl status av1janitor
-
-# View daemon logs
-sudo journalctl -u av1janitor -f
-
-# Check for errors
-sudo journalctl -u av1janitor -n 50
-```
-
----
-
-## Common Issues
-
-### 1. "Exec format error"
-**Cause**: Binaries were built on macOS, not Linux  
-**Solution**: Build on your Linux system
-
-### 2. "No job files found"
-**Cause**: Daemon hasn't scanned yet OR no files need transcoding  
-**Solution**: Wait a minute, check logs, verify config
-
-### 3. Service won't start
-**Cause**: Binary missing, config error, permissions  
-**Solution**: Check logs with `journalctl -u av1janitor -n 50`
-
-### 4. No files being transcoded
-**Cause**: 
-- Files are already AV1
-- Files are below size threshold (2 GB default)
-- Config directories are wrong
-**Solution**: Check daemon logs, verify config
 
 ---
 
 ## Expected Behavior
 
-### When daemon starts:
-```
-[av1d] Starting AV1 Janitor daemon...
-[av1d] Scanning /media/movies...
-[av1d] Found 3 files needing transcode
-[av1d] Created job: /media/movies/big-movie.mkv
-[av1d] Starting transcode...
-```
+### When First Started (Normal)
+1. Daemon starts
+2. Scans directories
+3. Finds files that meet criteria
+4. Creates job JSON files in `/var/lib/av1janitor/jobs/`
+5. TUI reads job files and displays them
+6. "demo data" message disappears
 
-### When av1top runs:
-```
-┌─ AV1 Transcoding Monitor ─┐
-│ Queue: 2 │ Running: 1      │
-│ CPU: 45% │ GPU: 78%        │
-│ Current: big-movie.mkv     │
-│ [████████░░] 82%           │
-└────────────────────────────┘
+### Timeline:
+- **0-5 seconds:** TUI shows "demo data" (no jobs yet)
+- **5-30 seconds:** Daemon finishes scanning, creates jobs
+- **30+ seconds:** TUI shows real jobs, real system stats
+
+---
+
+## Verify Real Data is Showing
+
+When the TUI has real data, you'll see:
+- ✅ Real CPU/GPU/Memory/I/O stats (not 0%)
+- ✅ Actual file paths in the jobs table
+- ✅ Real file sizes
+- ✅ No "showing demo data" message in footer
+- ✅ Queue counts change as jobs run
+
+---
+
+## Debug Commands
+
+```bash
+# 1. Check daemon status
+sudo systemctl status av1janitor
+
+# 2. View real-time logs
+sudo journalctl -u av1janitor -f
+
+# 3. Check job directory
+ls -la /var/lib/av1janitor/jobs/
+cat /var/lib/av1janitor/jobs/*.json 2>/dev/null | head -20
+
+# 4. Test daemon manually
+sudo -u av1janitor av1d --once --dry-run -vv
+
+# 5. Check config
+cat /etc/av1janitor/config.toml
 ```
 
 ---
 
-## TLDR
+## If Still Showing Demo Data After 1 Minute
 
-**"Demo data" = No real jobs exist yet**
+Run this diagnostic:
 
-To see real data:
-1. Build on Linux (not macOS)
-2. Configure media directories
-3. Start the daemon
-4. Wait for scan
-5. Run av1top
+```bash
+echo "=== AV1 Janitor Diagnostic ==="
+echo ""
+echo "1. Daemon status:"
+sudo systemctl status av1janitor --no-pager | head -10
+echo ""
+echo "2. Recent logs:"
+sudo journalctl -u av1janitor -n 20 --no-pager
+echo ""
+echo "3. Job files:"
+ls -la /var/lib/av1janitor/jobs/ 2>&1 || echo "Directory doesn't exist"
+echo ""
+echo "4. Config:"
+cat /etc/av1janitor/config.toml 2>&1 || echo "Config not found"
+echo ""
+echo "5. Binary check:"
+file /usr/bin/av1d /usr/bin/av1top
+echo ""
+echo "6. Media files check:"
+find /media -type f -size +2G \( -name "*.mkv" -o -name "*.mp4" -o -name "*.avi" \) 2>/dev/null | head -3 || echo "No large media files found"
+```
 
-**Demo data is a FEATURE, not a bug!** It shows you what the TUI looks like before real jobs exist.
+---
 
+## Summary
+
+**The TUI is NOT a demo!** It shows:
+- ✅ Real system stats (CPU, GPU, Memory, I/O)
+- ✅ Real jobs when they exist
+- ✅ Demo placeholder data ONLY when no jobs exist yet
+
+**To get real data:**
+1. Make sure daemon is running
+2. Make sure config points to your media
+3. Wait for daemon to scan and create jobs
+4. TUI will automatically show real data
+
+**Check:** `sudo journalctl -u av1janitor -f` to see what the daemon is doing!

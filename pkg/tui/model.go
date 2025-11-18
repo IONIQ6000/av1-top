@@ -153,34 +153,35 @@ func (m Model) View() string {
 func (m Model) renderHeader() string {
 	stats := m.getQueueStats()
 	
-	// Modern color scheme with functional meaning
+	// Use adaptive colors that work across all terminals
+	// Lipgloss automatically adapts to terminal color support
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("51")). // Cyan for primary title
-		Background(lipgloss.Color("235"))  // Dark background
+		Foreground(lipgloss.AdaptiveColor{Light: "#00d4ff", Dark: "#00ffff"}). // Cyan
+		Background(lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "#262626"})
 
-	// Functional colors
+	// Functional colors - adaptive for all terminals
 	queueStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("39")). // Blue for pending/queued
+		Foreground(lipgloss.AdaptiveColor{Light: "#0055ff", Dark: "#00aaff"}). // Blue
 		Bold(true)
 
 	runningStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("214")). // Orange/Yellow for active/running
+		Foreground(lipgloss.AdaptiveColor{Light: "#ff8800", Dark: "#ffaa00"}). // Orange
 		Bold(true)
 
 	successStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("46")). // Green for success
+		Foreground(lipgloss.AdaptiveColor{Light: "#00aa00", Dark: "#00ff00"}). // Green
 		Bold(true)
 
 	failedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("196")). // Red for errors
+		Foreground(lipgloss.AdaptiveColor{Light: "#cc0000", Dark: "#ff0000"}). // Red
 		Bold(true)
 
 	skippedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")) // Gray for inactive/skipped
+		Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#888888"}) // Gray
 
 	separator := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("238")).
+		Foreground(lipgloss.AdaptiveColor{Light: "#999999", Dark: "#555555"}).
 		Render(" • ")
 
 	header := fmt.Sprintf("%s%sQueue: %s%sRunning: %s%s✓ %s%s✗ %s%s⊘ %s",
@@ -200,8 +201,8 @@ func (m Model) renderHeader() string {
 	return lipgloss.NewStyle().
 		Width(m.width).
 		Padding(0, 1).
-		Background(lipgloss.Color("235")).
-		Foreground(lipgloss.Color("255")).
+		Background(lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "#262626"}).
+		Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#ffffff"}).
 		Render(header)
 }
 
@@ -224,22 +225,22 @@ func (m Model) renderSystemStats() string {
 	// I/O
 	ioInfo := fmt.Sprintf("Read:  %.1f MB/s\nWrite: %.1f MB/s", m.ioReadMB, m.ioWriteMB)
 
-	// Modern panel styling with subtle borders
+	// Modern panel styling with subtle borders - adaptive colors
 	panelStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("238")). // Subtle gray border
+		BorderForeground(lipgloss.AdaptiveColor{Light: "#cccccc", Dark: "#555555"}).
 		Padding(1, 2).
 		Width(m.width/4 - 3).
-		Background(lipgloss.Color("236")) // Dark background
+		Background(lipgloss.AdaptiveColor{Light: "#f5f5f5", Dark: "#1e1e1e"})
 
 	infoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252")) // Light gray for info text
+		Foreground(lipgloss.AdaptiveColor{Light: "#333333", Dark: "#e0e0e0"})
 
 	cpuPanel := panelStyle.Render(fmt.Sprintf("%s\n%s", cpuBar, infoStyle.Render(cpuInfo)))
 	gpuPanel := panelStyle.Render(fmt.Sprintf("%s\n%s", gpuBar, infoStyle.Render(gpuInfo)))
 	memPanel := panelStyle.Render(fmt.Sprintf("%s\n%s", memBar, infoStyle.Render(memInfo)))
 	ioPanel := panelStyle.Render(fmt.Sprintf("%s\n%s", 
-		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Render("I/O"),
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#ffffff"}).Render("I/O"),
 		infoStyle.Render(ioInfo)))
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, cpuPanel, gpuPanel, memPanel, ioPanel)
@@ -253,24 +254,24 @@ func (m Model) renderBar(title string, value, warnThreshold float64) string {
 	}
 
 	// Functional color coding: green -> yellow -> red based on thresholds
-	var color string
+	var color lipgloss.AdaptiveColor
 	if value < warnThreshold*0.6 {
-		color = "46" // Green - healthy
+		color = lipgloss.AdaptiveColor{Light: "#00aa00", Dark: "#00ff00"} // Green - healthy
 	} else if value < warnThreshold {
-		color = "226" // Yellow - getting high
+		color = lipgloss.AdaptiveColor{Light: "#ffaa00", Dark: "#ffaa00"} // Yellow - getting high
 	} else {
-		color = "196" // Red - critical
+		color = lipgloss.AdaptiveColor{Light: "#cc0000", Dark: "#ff0000"} // Red - critical
 	}
 
 	// Modern bar with gradient effect
 	filledBar := strings.Repeat("█", filled)
 	emptyBar := strings.Repeat("░", barWidth-filled)
-	bar := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(filledBar) +
-		lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Render(emptyBar)
+	bar := lipgloss.NewStyle().Foreground(color).Render(filledBar) +
+		lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#cccccc", Dark: "#555555"}).Render(emptyBar)
 	
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("255"))
+		Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#ffffff"})
 	
 	return fmt.Sprintf("%s\n%s", titleStyle.Render(title), bar)
 }
@@ -287,18 +288,18 @@ func (m Model) renderCurrentJob() string {
 
 	panelStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("238")).
+		BorderForeground(lipgloss.AdaptiveColor{Light: "#cccccc", Dark: "#555555"}).
 		Padding(1, 2).
-		Background(lipgloss.Color("236"))
+		Background(lipgloss.AdaptiveColor{Light: "#f5f5f5", Dark: "#1e1e1e"})
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("214")) // Orange for active job
+		Foreground(lipgloss.AdaptiveColor{Light: "#ff8800", Dark: "#ffaa00"}) // Orange
 
 	if runningJob == nil {
 		return panelStyle.Render(fmt.Sprintf("%s\n%s",
 			titleStyle.Render("Current Transcode"),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("No active transcoding job")))
+			lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#888888"}).Render("No active transcoding job")))
 	}
 
 	filename := runningJob.FilePath
@@ -308,12 +309,11 @@ func (m Model) renderCurrentJob() string {
 		filename = filepath.Base(filename)
 	}
 
-	statusColor := "214" // Orange for running
 	statusStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(statusColor)).
+		Foreground(lipgloss.AdaptiveColor{Light: "#ff8800", Dark: "#ffaa00"}).
 		Bold(true)
 
-	infoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	infoStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#333333", Dark: "#e0e0e0"})
 	info := fmt.Sprintf("File: %s\nStatus: %s\nStarted: %s",
 		infoStyle.Render(filename),
 		statusStyle.Render(string(runningJob.Status)),
@@ -325,28 +325,28 @@ func (m Model) renderCurrentJob() string {
 func (m Model) renderJobsTable() string {
 	panelStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("238")).
+		BorderForeground(lipgloss.AdaptiveColor{Light: "#cccccc", Dark: "#555555"}).
 		Padding(1, 2).
-		Background(lipgloss.Color("236"))
+		Background(lipgloss.AdaptiveColor{Light: "#f5f5f5", Dark: "#1e1e1e"})
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("51")) // Cyan for section title
+		Foreground(lipgloss.AdaptiveColor{Light: "#0055ff", Dark: "#00ffff"}) // Cyan
 
 	if len(m.jobs) == 0 {
 		return panelStyle.Render(fmt.Sprintf("%s\n%s",
 			titleStyle.Render("Transcode History"),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("No jobs found")))
+			lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#888888"}).Render("No jobs found")))
 	}
 
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("255")).
+		Foreground(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#ffffff"}).
 		Underline(true)
 
 	var rows []string
 	rows = append(rows, headerStyle.Render("Status │ File │ Created"))
-	rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Render(strings.Repeat("─", m.width-8)))
+	rows = append(rows, lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#cccccc", Dark: "#555555"}).Render(strings.Repeat("─", m.width-8)))
 
 	// Sort jobs: running first, then by CreatedAt (newest first)
 	sortedJobs := make([]*persistence.Job, len(m.jobs))
@@ -373,36 +373,36 @@ func (m Model) renderJobsTable() string {
 		maxShow = len(sortedJobs)
 	}
 
-	rowStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	separator := lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Render(" │ ")
+	rowStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#333333", Dark: "#e0e0e0"})
+	separator := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#cccccc", Dark: "#555555"}).Render(" │ ")
 
 	for i := 0; i < maxShow; i++ {
 		job := sortedJobs[i]
-		var statusColor string
+		var statusColor lipgloss.AdaptiveColor
 		var statusSymbol string
 		switch job.Status {
 		case persistence.StatusComplete:
-			statusColor = "46" // Green for success
+			statusColor = lipgloss.AdaptiveColor{Light: "#00aa00", Dark: "#00ff00"} // Green
 			statusSymbol = "✓"
 		case persistence.StatusFailed:
-			statusColor = "196" // Red for errors
+			statusColor = lipgloss.AdaptiveColor{Light: "#cc0000", Dark: "#ff0000"} // Red
 			statusSymbol = "✗"
 		case persistence.StatusRunning:
-			statusColor = "214" // Orange for active
+			statusColor = lipgloss.AdaptiveColor{Light: "#ff8800", Dark: "#ffaa00"} // Orange
 			statusSymbol = "▶"
 		case persistence.StatusPending:
-			statusColor = "39" // Blue for queued
+			statusColor = lipgloss.AdaptiveColor{Light: "#0055ff", Dark: "#00aaff"} // Blue
 			statusSymbol = "○"
 		case persistence.StatusSkipped:
-			statusColor = "240" // Gray for skipped
+			statusColor = lipgloss.AdaptiveColor{Light: "#666666", Dark: "#888888"} // Gray
 			statusSymbol = "⊘"
 		default:
-			statusColor = "240"
+			statusColor = lipgloss.AdaptiveColor{Light: "#666666", Dark: "#888888"}
 			statusSymbol = "•"
 		}
 
 		status := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(statusColor)).
+			Foreground(statusColor).
 			Bold(true).
 			Render(fmt.Sprintf("%s %s", statusSymbol, string(job.Status)))
 
@@ -433,11 +433,11 @@ func (m Model) renderFooter() string {
 	stats := m.getQueueStats()
 	
 	keyStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("214")).
+		Foreground(lipgloss.AdaptiveColor{Light: "#ff8800", Dark: "#ffaa00"}).
 		Bold(true)
 	
 	textStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240"))
+		Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#888888"})
 	
 	message := fmt.Sprintf("%s %s %s %s",
 		keyStyle.Render("q"),
@@ -447,15 +447,16 @@ func (m Model) renderFooter() string {
 	
 	if stats.pending == 0 && stats.running == 0 {
 		waitStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
+			Foreground(lipgloss.AdaptiveColor{Light: "#0055ff", Dark: "#00aaff"}).
 			Italic(true)
-		message = waitStyle.Render("Waiting for jobs...") + " • " + message
+		separator := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#999999", Dark: "#555555"}).Render(" • ")
+		message = waitStyle.Render("Waiting for jobs...") + separator + message
 	}
 
 	return lipgloss.NewStyle().
 		Width(m.width).
 		Padding(0, 1).
-		Background(lipgloss.Color("235")).
+		Background(lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "#262626"}).
 		Render(message)
 }
 

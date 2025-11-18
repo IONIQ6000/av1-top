@@ -113,6 +113,8 @@ pub fn build_ffmpeg_command(_ffmpeg_path: &Path, params: &TranscodeParams) -> Ve
         
         if let Some(device_path) = render_device {
             // Initialize VAAPI device with explicit DRM render node path
+            // Format: vaapi=name:/path/to/device
+            // Example: vaapi=va:/dev/dri/renderD128
             args.push("-init_hw_device".to_string());
             args.push(format!("vaapi=va:{}", device_path));
             

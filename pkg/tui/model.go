@@ -566,16 +566,8 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 			}
 		}
 		
-		// Method 3: Try reading GPU memory from sysfs
-		if gpuMemoryMB == 0 {
-			memPaths := []string{
-				"/sys/class/drm/card0/device/resource",
-			}
-			// Try to read from intel_gpu_top output if we got it
-			if len(output) > 0 {
-				// Already tried above
-			}
-		}
+		// GPU memory is already parsed from intel_gpu_top if available
+		// If still 0, we can't easily get it from sysfs without parsing complex files
 
 		return systemMetricsMsg{
 			cpuUsage:    cpuUsage,

@@ -561,20 +561,26 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 						absDevicePath = filepath.Clean(absDevicePath)
 						
 						// Try frequency files in various locations
+						// Priority order: card-level files first, then device path, then gt subdirectories
 						freqPaths := []string{
-							// Direct in device path
+							// Card-level files (most direct)
+							filepath.Join(drmDir, entry.Name(), "gt_min_freq_mhz"),
+							filepath.Join(drmDir, entry.Name(), "gt_max_freq_mhz"),
+							filepath.Join(drmDir, entry.Name(), "gt_RP0_freq_mhz"),
+							filepath.Join(drmDir, entry.Name(), "gt_RPn_freq_mhz"),
+							// In card's gt/gt0 subdirectory (RPS frequencies)
+							filepath.Join(drmDir, entry.Name(), "gt", "gt0", "rps_min_freq_mhz"),
+							filepath.Join(drmDir, entry.Name(), "gt", "gt0", "rps_max_freq_mhz"),
+							filepath.Join(drmDir, entry.Name(), "gt", "gt0", "rps_RP0_freq_mhz"),
+							filepath.Join(drmDir, entry.Name(), "gt", "gt0", "rps_RPn_freq_mhz"),
+							// Device path files
 							filepath.Join(absDevicePath, "gt_min_freq_mhz"),
 							filepath.Join(absDevicePath, "gt_max_freq_mhz"),
 							filepath.Join(absDevicePath, "gt_RP0_freq_mhz"),
 							filepath.Join(absDevicePath, "gt_RPn_freq_mhz"),
-							// In gt subdirectory
+							// In device's gt subdirectory
 							filepath.Join(absDevicePath, "gt", "min_freq_mhz"),
 							filepath.Join(absDevicePath, "gt", "max_freq_mhz"),
-							// In card's gt directory
-							filepath.Join(drmDir, entry.Name(), "gt", "min_freq_mhz"),
-							filepath.Join(drmDir, entry.Name(), "gt", "max_freq_mhz"),
-							filepath.Join(drmDir, entry.Name(), "gt_min_freq_mhz"),
-							filepath.Join(drmDir, entry.Name(), "gt_max_freq_mhz"),
 						}
 						
 						var minFreq, maxFreq float64
@@ -597,11 +603,17 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 						// Try to find current frequency
 						if maxFreq > 0 && minFreq > 0 {
 							curFreqPaths := []string{
+								// Card-level files (most direct)
+								filepath.Join(drmDir, entry.Name(), "gt_cur_freq_mhz"),
+								filepath.Join(drmDir, entry.Name(), "gt_act_freq_mhz"),
+								// In card's gt/gt0 subdirectory (RPS current frequency)
+								filepath.Join(drmDir, entry.Name(), "gt", "gt0", "rps_cur_freq_mhz"),
+								filepath.Join(drmDir, entry.Name(), "gt", "gt0", "rps_act_freq_mhz"),
+								// Device path files
 								filepath.Join(absDevicePath, "gt_cur_freq_mhz"),
+								filepath.Join(absDevicePath, "gt_act_freq_mhz"),
 								filepath.Join(absDevicePath, "gt", "cur_freq_mhz"),
 								filepath.Join(absDevicePath, "gt", "act_freq_mhz"),
-								filepath.Join(drmDir, entry.Name(), "gt", "cur_freq_mhz"),
-								filepath.Join(drmDir, entry.Name(), "gt_cur_freq_mhz"),
 							}
 							curFreq := minFreq // Default to min
 							for _, freqFile := range curFreqPaths {

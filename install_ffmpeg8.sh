@@ -72,19 +72,56 @@ if ! command -v xz &> /dev/null; then
     }
 fi
 
-echo -e "${YELLOW}[2/4] Downloading FFmpeg 8.0+ static build...${NC}"
+echo -e "${YELLOW}[2/4] Checking for FFmpeg 8.0 source...${NC}"
 
-# Try to download static build from johnvansickle.com
-STATIC_URL="https://johnvansickle.com/ffmpeg/builds/ffmpeg-git-amd64-static.tar.xz"
-
-echo "Downloading from: $STATIC_URL"
-DOWNLOAD_CMD="wget"
-if ! command -v wget &> /dev/null; then
-    DOWNLOAD_CMD="curl -L -o"
+# Check if user has provided FFmpeg 8.0 source locally
+FFMPEG_SOURCE=""
+if [ -f "ffmpeg-8.0.tar.xz" ]; then
+    echo -e "${GREEN}✓ Found local ffmpeg-8.0.tar.xz${NC}"
+    FFMPEG_SOURCE="ffmpeg-8.0.tar.xz"
+elif [ -f "../ffmpeg-8.0.tar.xz" ]; then
+    echo -e "${GREEN}✓ Found ffmpeg-8.0.tar.xz in parent directory${NC}"
+    cp ../ffmpeg-8.0.tar.xz .
+    FFMPEG_SOURCE="ffmpeg-8.0.tar.xz"
 fi
 
-if $DOWNLOAD_CMD --progress=bar:force:noscroll -q --show-progress "$STATIC_URL" -O ffmpeg-static.tar.xz 2>&1 || \
-   curl -L --progress-bar "$STATIC_URL" -o ffmpeg-static.tar.xz 2>&1; then
+# If no local source, download FFmpeg 8.0 from official source
+if [ -z "$FFMPEG_SOURCE" ]; then
+    echo -e "${YELLOW}Downloading FFmpeg 8.0 from official source...${NC}"
+    FFMPEG_VERSION="8.0"
+    FFMPEG_URL="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+    
+    if command -v wget &> /dev/null; then
+        wget --progress=bar:force:noscroll -q --show-progress "$FFMPEG_URL" -O "ffmpeg-${FFMPEG_VERSION}.tar.xz" 2>&1 && \
+        FFMPEG_SOURCE="ffmpeg-${FFMPEG_VERSION}.tar.xz"
+    elif command -v curl &> /dev/null; then
+        curl -L --progress-bar "$FFMPEG_URL" -o "ffmpeg-${FFMPEG_VERSION}.tar.xz" && \
+        FFMPEG_SOURCE="ffmpeg-${FFMPEG_VERSION}.tar.xz"
+    fi
+fi
+
+# If we have FFmpeg 8.0 source, build from source (required for QSV support)
+if [ -n "$FFMPEG_SOURCE" ]; then
+    echo -e "${GREEN}✓ Will build FFmpeg 8.0 from source with Intel QSV support${NC}"
+    # Skip static build, go straight to source build
+    SKIP_STATIC=true
+else
+    echo -e "${YELLOW}⚠ FFmpeg 8.0 source not found, trying static build (may be older version)...${NC}"
+    SKIP_STATIC=false
+fi
+
+# Try static build only if we don't have source
+if [ "$SKIP_STATIC" = "false" ]; then
+    STATIC_URL="https://johnvansickle.com/ffmpeg/builds/ffmpeg-git-amd64-static.tar.xz"
+    echo "Downloading static build from: $STATIC_URL"
+    
+    if command -v wget &> /dev/null; then
+        DOWNLOAD_SUCCESS=$(wget --progress=bar:force:noscroll -q --show-progress "$STATIC_URL" -O ffmpeg-static.tar.xz 2>&1 && echo "yes" || echo "no")
+    else
+        DOWNLOAD_SUCCESS=$(curl -L --progress-bar "$STATIC_URL" -o ffmpeg-static.tar.xz 2>&1 && echo "yes" || echo "no")
+    fi
+    
+    if [ "$DOWNLOAD_SUCCESS" = "yes" ] && [ -f "ffmpeg-static.tar.xz" ]; then
     echo -e "${GREEN}✓ Download complete${NC}"
     
     echo -e "${YELLOW}[2/4] Extracting...${NC}"
@@ -164,11 +201,13 @@ if $DOWNLOAD_CMD --progress=bar:force:noscroll -q --show-progress "$STATIC_URL" 
         echo -e "${RED}✗ Installation verification failed${NC}"
         exit 1
     fi
-else
-    echo -e "${YELLOW}⚠ Static build download failed, trying alternative...${NC}"
-    
-    # Try alternative: GitHub releases or build from source
-    echo -e "${YELLOW}Attempting to build from source (this will take 10-30 minutes)...${NC}"
+    fi
+fi
+
+# Build from source (either user-provided or downloaded FFmpeg 8.0)
+if [ -n "$FFMPEG_SOURCE" ] || [ "$SKIP_STATIC" = "true" ]; then
+    echo -e "${YELLOW}Building FFmpeg 8.0 from source with Intel QSV support...${NC}"
+    echo -e "${YELLOW}(This will take 15-30 minutes depending on CPU)${NC}"
     
     # Install build dependencies
     echo -e "${YELLOW}[1/5] Installing build dependencies...${NC}"
@@ -207,51 +246,32 @@ else
     apt-get install -y -qq libfdk-aac-dev 2>/dev/null || \
         echo -e "${YELLOW}⚠ libfdk-aac-dev not available, skipping...${NC}"
     
-    # Download FFmpeg source
-    echo -e "${YELLOW}[2/5] Downloading FFmpeg source...${NC}"
-    FFMPEG_VERSION="8.0"
+    # Extract FFmpeg source
+    echo -e "${YELLOW}[2/5] Extracting FFmpeg 8.0 source...${NC}"
     
-    # Try wget first, fall back to curl
-    if command -v wget &> /dev/null; then
-        wget -q --show-progress "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" 2>/dev/null || \
-        wget -q --show-progress "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" -O ffmpeg-${FFMPEG_VERSION}.tar.gz 2>/dev/null || {
-            echo -e "${YELLOW}Trying git clone instead...${NC}"
-            git clone --depth 1 --branch release/8.0 https://git.ffmpeg.org/ffmpeg.git ffmpeg-source 2>/dev/null || \
-            git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git ffmpeg-source 2>/dev/null || {
-                echo -e "${RED}✗ Failed to download FFmpeg source${NC}"
-                exit 1
-            }
-        }
+    if [ -n "$FFMPEG_SOURCE" ] && [ -f "$FFMPEG_SOURCE" ]; then
+        echo "Using: $FFMPEG_SOURCE"
+        tar xf "$FFMPEG_SOURCE"
+        cd ffmpeg-8.0
+    elif [ -f "ffmpeg-8.0.tar.xz" ]; then
+        tar xf "ffmpeg-8.0.tar.xz"
+        cd ffmpeg-8.0
+    elif [ -f "ffmpeg-8.0.tar.gz" ]; then
+        tar xf "ffmpeg-8.0.tar.gz"
+        cd ffmpeg-8.0
     else
-        curl -L --progress-bar "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" -o "ffmpeg-${FFMPEG_VERSION}.tar.xz" 2>/dev/null || \
-        curl -L --progress-bar "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" -o "ffmpeg-${FFMPEG_VERSION}.tar.gz" 2>/dev/null || {
-            echo -e "${YELLOW}Trying git clone instead...${NC}"
-            git clone --depth 1 --branch release/8.0 https://git.ffmpeg.org/ffmpeg.git ffmpeg-source 2>/dev/null || \
-            git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git ffmpeg-source 2>/dev/null || {
-                echo -e "${RED}✗ Failed to download FFmpeg source${NC}"
-                exit 1
-            }
-        }
-    fi
-    
-    if [ -f "ffmpeg-${FFMPEG_VERSION}.tar.xz" ]; then
-        tar xf "ffmpeg-${FFMPEG_VERSION}.tar.xz"
-        cd ffmpeg-${FFMPEG_VERSION}
-    elif [ -f "ffmpeg-${FFMPEG_VERSION}.tar.gz" ]; then
-        tar xf "ffmpeg-${FFMPEG_VERSION}.tar.gz"
-        cd FFmpeg-${FFMPEG_VERSION}
-    elif [ -d "ffmpeg-source" ]; then
-        cd ffmpeg-source
-    else
-        echo -e "${RED}✗ Failed to download FFmpeg source${NC}"
+        echo -e "${RED}✗ FFmpeg 8.0 source not found${NC}"
         exit 1
     fi
     
     # Configure and build
     echo -e "${YELLOW}[3/5] Configuring FFmpeg (this may take a few minutes)...${NC}"
     
-    # Build configure command with available libraries
+    # Build configure command with Intel QSV support
     CONFIGURE_ARGS="--prefix=/usr/local --enable-gpl --enable-version3 --enable-shared --disable-debug --disable-doc"
+    
+    # Intel QSV support (REQUIRED for AV1 transcoding)
+    CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libmfx --enable-libvpl --enable-vaapi"
     
     # Add optional libraries if available
     pkg-config --exists libx264 && CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libx264" || echo "⚠ libx264 not found"

@@ -193,35 +193,31 @@ echo -e "${GREEN}✓ FFmpeg 8.0+ installed successfully!${NC}"
 echo ""
 ffmpeg -version | head -1
 echo ""
-    
-    # Check for encoders
-    echo "Available AV1 encoders:"
-    ffmpeg -encoders 2>&1 | grep -i av1 || echo "  (none found)"
-    echo ""
-    
-    # Check for QSV encoder (may not be available in static build)
-    if ffmpeg -encoders 2>&1 | grep -q av1_qsv; then
-        echo -e "${GREEN}✓ av1_qsv encoder available${NC}"
-    else
-        echo -e "${YELLOW}⚠ av1_qsv encoder not found${NC}"
-        echo "Note: Static builds may not include QSV support."
-        echo "For QSV support, you may need to build from source with Intel GPU libraries."
-    fi
-    
-    echo ""
-    echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}  Installation Complete!${NC}"
-    echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
-    echo ""
-    echo "FFmpeg location: $INSTALL_DIR/ffmpeg"
-    echo "FFprobe location: $INSTALL_DIR/ffprobe"
-    echo ""
-    echo "Test with: ffmpeg -version"
-    echo ""
-    
-    exit 0
+
+# Check for encoders
+echo "Available AV1 encoders:"
+ffmpeg -encoders 2>&1 | grep -i av1 || echo "  (none found)"
+echo ""
+
+# Check for QSV encoder (may not be available in static build)
+if ffmpeg -encoders 2>&1 | grep -q av1_qsv; then
+    echo -e "${GREEN}✓ av1_qsv encoder available${NC}"
 else
-    echo -e "${RED}✗ Installation verification failed${NC}"
-    exit 1
+    echo -e "${YELLOW}⚠ av1_qsv encoder not found${NC}"
+    echo "Note: Static builds may not include QSV support."
+    echo "For QSV support, you may need to build from source with Intel GPU libraries."
 fi
+
+echo ""
+echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}  Installation Complete!${NC}"
+echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+echo ""
+echo "FFmpeg location: $INSTALL_DIR/ffmpeg"
+echo "FFprobe location: $INSTALL_DIR/ffprobe"
+echo ""
+echo "Test with: ffmpeg -version"
+echo ""
+
+exit 0
 

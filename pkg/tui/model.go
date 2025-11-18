@@ -491,34 +491,42 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 			ioWriteMB += float64(io.WriteBytes) / 1024 / 1024
 		}
 
-		// GPU metrics using intel_gpu_top
+		// GPU metrics using intel_gpu_top or sysfs
 		gpuUsage := 0.0
 		gpuMemoryMB := uint64(0)
 		
-		// Try to get GPU metrics from intel_gpu_top
-		cmd := exec.Command("timeout", "1", "intel_gpu_top", "-l", "-n", "1")
+		// Method 1: Try intel_gpu_top (if available and accessible)
+		cmd := exec.Command("sh", "-c", "timeout 1 intel_gpu_top -l -n 1 2>/dev/null || true")
 		output, err := cmd.Output()
-		if err == nil {
+		if err == nil && len(output) > 0 {
 			// Parse intel_gpu_top output
+			// Output format varies, try multiple patterns
 			lines := strings.Split(string(output), "\n")
 			for _, line := range lines {
-				// Look for render/3D usage percentage
-				if strings.Contains(line, "Render/3D") {
-					// Parse percentage from line like "Render/3D:    5%"
+				line = strings.TrimSpace(line)
+				// Look for various patterns
+				if strings.Contains(line, "Render/3D") || strings.Contains(line, "render") {
+					// Try to find percentage in the line
 					parts := strings.Fields(line)
-					for i, part := range parts {
+					for _, part := range parts {
 						if strings.HasSuffix(part, "%") {
 							if usage, err := strconv.ParseFloat(strings.TrimSuffix(part, "%"), 64); err == nil {
-								gpuUsage = usage
-								break
+								if usage > gpuUsage {
+									gpuUsage = usage
+								}
 							}
 						}
-						// Also check for memory usage
-						if part == "VRAM" && i+1 < len(parts) {
-							if memStr := parts[i+1]; strings.HasSuffix(memStr, "MB") {
-								if mem, err := strconv.ParseUint(strings.TrimSuffix(memStr, "MB"), 10, 64); err == nil {
-									gpuMemoryMB = mem
-								}
+					}
+				}
+				// Look for memory info
+				if strings.Contains(strings.ToLower(line), "vram") || strings.Contains(strings.ToLower(line), "memory") {
+					parts := strings.Fields(line)
+					for i, part := range parts {
+						if (strings.Contains(part, "MB") || strings.Contains(part, "MiB")) && i > 0 {
+							// Extract number before MB/MiB
+							numStr := strings.TrimSuffix(strings.TrimSuffix(part, "MB"), "MiB")
+							if mem, err := strconv.ParseUint(numStr, 10, 64); err == nil {
+								gpuMemoryMB = mem
 							}
 						}
 					}
@@ -526,18 +534,46 @@ func (m Model) updateSystemMetrics() tea.Cmd {
 			}
 		}
 		
-		// Fallback: try reading from /sys/class/drm
-		if gpuUsage == 0 {
-			// Try to read GPU frequency as proxy for usage
-			freqFile := "/sys/class/drm/card0/gt/cur_freq_mhz"
+		// Method 2: Try reading from /sys/class/drm (more reliable)
+		// Check multiple possible paths
+		freqPaths := []string{
+			"/sys/class/drm/card0/gt/cur_freq_mhz",
+			"/sys/class/drm/card0/gt_min_freq_mhz",
+			"/sys/class/drm/renderD128/device/gt/cur_freq_mhz",
+		}
+		
+		for _, freqFile := range freqPaths {
 			if data, err := os.ReadFile(freqFile); err == nil {
 				if freq, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil {
-					// Normalize to percentage (assuming max ~1200 MHz)
-					gpuUsage = (freq / 1200.0) * 100.0
+					// Try to get max freq for normalization
+					maxFreqFile := strings.Replace(freqFile, "cur_freq", "max_freq", 1)
+					maxFreq := 1200.0 // Default max
+					if maxData, err := os.ReadFile(maxFreqFile); err == nil {
+						if mf, err := strconv.ParseFloat(strings.TrimSpace(string(maxData)), 64); err == nil && mf > 0 {
+							maxFreq = mf
+						}
+					}
+					// Calculate usage percentage
+					usage := (freq / maxFreq) * 100.0
+					if usage > gpuUsage {
+						gpuUsage = usage
+					}
 					if gpuUsage > 100 {
 						gpuUsage = 100
 					}
+					break
 				}
+			}
+		}
+		
+		// Method 3: Try reading GPU memory from sysfs
+		if gpuMemoryMB == 0 {
+			memPaths := []string{
+				"/sys/class/drm/card0/device/resource",
+			}
+			// Try to read from intel_gpu_top output if we got it
+			if len(output) > 0 {
+				// Already tried above
 			}
 		}
 

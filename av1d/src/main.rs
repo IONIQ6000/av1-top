@@ -570,8 +570,8 @@ fn scan_directories(config: &TranscodeConfig) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// Recursively scan directory with conditional depth
-/// Only recurses into subdirectories if they contain media files at their top level
+/// Recursively scan directory with smart depth limiting
+/// Checks subdirectories at one level: if a subdirectory has no files at its top level, skip it
 fn scan_directory_recursive(
     dir: &Path,
     extensions: &[String],
@@ -581,9 +581,8 @@ fn scan_directory_recursive(
         .with_context(|| format!("Failed to read directory: {}", dir.display()))?;
     
     let mut subdirs = Vec::new();
-    let mut has_media_files = false;
     
-    // First pass: collect files and subdirectories
+    // First pass: collect files from current directory and list subdirectories
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
@@ -595,22 +594,53 @@ fn scan_directory_recursive(
                 if let Some(ext_str) = ext.to_str() {
                     if extensions.contains(&ext_str.to_lowercase()) {
                         files.push(path);
-                        has_media_files = true;
                     }
                 }
             }
         }
     }
     
-    // Second pass: only recurse into subdirectories if current directory has media files
-    // This prevents deep scanning of directories that don't contain media
-    if has_media_files {
-        for subdir in subdirs {
+    // Second pass: check each subdirectory at one level deep
+    // Only recurse into subdirectories that have media files at their top level
+    for subdir in subdirs {
+        // Check if this subdirectory has any media files at its top level
+        if has_media_files_at_top_level(&subdir, extensions)? {
+            // Subdirectory has files at top level, recurse into it
             scan_directory_recursive(&subdir, extensions, files)?;
         }
+        // If subdirectory has no files at top level, skip it entirely (don't recurse)
     }
     
     Ok(())
+}
+
+/// Check if a directory has any media files at its top level (non-recursive)
+fn has_media_files_at_top_level(dir: &Path, extensions: &[String]) -> Result<bool> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(false), // Can't read directory, skip it
+    };
+    
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        
+        // Only check files at top level, ignore subdirectories
+        if path.is_file() {
+            if let Some(ext) = path.extension() {
+                if let Some(ext_str) = ext.to_str() {
+                    if extensions.contains(&ext_str.to_lowercase()) {
+                        return Ok(true); // Found at least one media file
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(false) // No media files found at top level
 }
 
 /// Print configuration

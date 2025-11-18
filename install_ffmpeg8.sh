@@ -297,7 +297,8 @@ if [ -n "$FFMPEG_SOURCE" ] || [ "$SKIP_STATIC" = "true" ]; then
     CONFIGURE_ARGS="--prefix=/usr/local --enable-gpl --enable-version3 --enable-shared --disable-debug --disable-doc"
     
     # Intel QSV support (REQUIRED for AV1 transcoding)
-    CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libmfx --enable-libvpl --enable-vaapi"
+    # Use libvpl (newer API) - cannot use both libmfx and libvpl together
+    CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-libvpl --enable-vaapi"
     
     # Add optional libraries if available (check multiple ways)
     if pkg-config --exists x264 2>/dev/null || pkg-config --exists libx264 2>/dev/null || [ -f /usr/lib/pkgconfig/x264.pc ]; then
@@ -353,7 +354,6 @@ if [ -n "$FFMPEG_SOURCE" ] || [ "$SKIP_STATIC" = "true" ]; then
             --enable-shared \
             --disable-debug \
             --disable-doc \
-            --enable-libmfx \
             --enable-libvpl \
             --enable-vaapi \
             --disable-x86asm \

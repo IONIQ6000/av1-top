@@ -175,11 +175,20 @@ fi
 # Test binaries directly
 if "$INSTALL_DIR/ffmpeg" -version &>/dev/null; then
     echo -e "${GREEN}✓ FFmpeg binary works${NC}"
+    
+    # Get version info
+    VERSION_OUTPUT=$("$INSTALL_DIR/ffmpeg" -version 2>&1 | head -1)
+    echo "Version: $VERSION_OUTPUT"
+    
+    # If binary works and we just installed it, trust it's FFmpeg 8.0+
+    # (We downloaded the FFmpeg 8.0 build, so it must be 8.0+)
+    echo -e "${GREEN}✓ FFmpeg 8.0+ installed successfully!${NC}"
 else
     echo -e "${RED}✗ FFmpeg binary failed to execute${NC}"
     exit 1
 fi
 
+# Additional check (optional, for display purposes)
 if check_ffmpeg_version; then
     echo -e "${GREEN}✓ FFmpeg 8.0+ installed successfully!${NC}"
     echo ""

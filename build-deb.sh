@@ -18,6 +18,25 @@ echo ""
 
 # Build release binaries
 echo "[1/5] Building release binaries..."
+
+# Detect if we're on macOS and need cross-compilation
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "WARNING: Building on macOS - binaries will be macOS binaries, not Linux!"
+    echo "For Linux .deb packages, build on a Linux system or use cross-compilation."
+    echo ""
+    echo "To build on Linux:"
+    echo "  1. Transfer source to Linux system"
+    echo "  2. Run: cargo build --release --workspace"
+    echo "  3. Run: ./build-deb.sh"
+    echo ""
+    read -p "Continue anyway? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Aborted. Build on Linux for proper Linux binaries."
+        exit 1
+    fi
+fi
+
 cargo build --release --workspace
 
 # Create package directory structure

@@ -48,9 +48,11 @@ if check_ffmpeg_version; then
     exit 0
 fi
 
-echo -e "${YELLOW}[1/4] Installing wget (if needed)...${NC}"
+echo -e "${YELLOW}[1/4] Installing required tools (wget, xz-utils)...${NC}"
+apt-get update -qq
+
+# Install wget if needed
 if ! command -v wget &> /dev/null; then
-    apt-get update -qq
     apt-get install -y -qq wget || {
         echo -e "${YELLOW}⚠ wget not available, trying curl...${NC}"
         if ! command -v curl &> /dev/null; then
@@ -59,6 +61,14 @@ if ! command -v wget &> /dev/null; then
                 exit 1
             }
         fi
+    }
+fi
+
+# Install xz-utils for extracting .tar.xz files
+if ! command -v xz &> /dev/null; then
+    apt-get install -y -qq xz-utils || {
+        echo -e "${RED}✗ Cannot install xz-utils (needed for extraction)${NC}"
+        exit 1
     }
 fi
 
